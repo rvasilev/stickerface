@@ -171,6 +171,36 @@
         r.jpegHasNoExif = false;
       }
     }
+    // --- 8. reorder reaches the layer list ------------------------------------
+    // raise/lower change the array order, so the rows must follow it. NOTE: this
+    // criterion passes even if the store reports the reorder as a plain 'change',
+    // because _push emits a history event first and that already forces a rebuild -
+    // verified by reverting the event type and re-running. It asserts the visible
+    // behaviour, not the event plumbing.
+    // Two stickers are added through the store (this criterion is about the list and
+    // the store agreeing, not about placement, and the canvas is already crowded).
+    const app = window.__stickerface;
+    const rowLabels = () => [...document.querySelectorAll('#layer-list .layer-row .label')]
+      .map((el) => el.textContent.trim());
+    const pickerSrc = (i) => app.els.picker.children[i].dataset.src;
+    app.store.add({ kind: 'emoji', src: pickerSrc(3), cx: 0.25, cy: 0.3 });
+    app.store.add({ kind: 'emoji', src: pickerSrc(7), cx: 0.7, cy: 0.6 });
+    await sleep(200);
+    const rowsBeforeReorder = rowLabels();
+    const n = rowsBeforeReorder.length;
+    const distinctLabels = n >= 2 && rowsBeforeReorder[n - 1] !== rowsBeforeReorder[n - 2];
+    // Bring the SECOND-TO-BOTTOM row forward (the bottom one is already on top):
+    // the last two rows must SWAP.
+    const rowEls = [...document.querySelectorAll('#layer-list .layer-row')];
+    rowEls[n - 2].querySelector('button[title^="Bring forward"]').click();
+    await sleep(250);
+    const rowsAfterReorder = rowLabels();
+    r.reorderReachesLayerList = distinctLabels && rowsAfterReorder.length === n &&
+      rowsAfterReorder[n - 1] === rowsBeforeReorder[n - 2] &&
+      rowsAfterReorder[n - 2] === rowsBeforeReorder[n - 1];
+    log('rowsBeforeReorder', rowsBeforeReorder.slice(-2));
+    log('rowsAfterReorder', rowsAfterReorder.slice(-2));
+
     log('done', true);
   } catch (e) {
     r.errors.push(String((e && e.stack) || e));

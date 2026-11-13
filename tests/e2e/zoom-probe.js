@@ -151,13 +151,25 @@
       ...lerp(ZOOM_MIN, [CENTRE, [CENTRE[0] + 6, CENTRE[1]]], 10),
       { t: 'touchEnd', pts: [], ms: 300 },
       { t: 'read', name: 'afterZoomMin' },
+      // A hard pinch-in from fit, which must stop AT fit rather than below it. The
+      // gesture above starts from the maximum zoom, so it can only prove the top
+      // clamp; this one would overshoot a broken (or absent) floor.
+      { t: 'touchStart', pts: ZOOM_MAX, ms: 90 },
+      ...lerp(ZOOM_MAX, [CENTRE, [CENTRE[0] + 4, CENTRE[1]]], 10),
+      { t: 'touchEnd', pts: [], ms: 300 },
+      { t: 'read', name: 'afterZoomFloor' },
     ];
 
     window.__sfReadTouch = () => {
       const s = window.__sfSnaps;
       const out = { steps: [] };
-      const t0 = s.t0, zin = s.afterZoomIn, zmax = s.afterZoomMax, zmin = s.afterZoomMin;
+      const t0 = s.t0, zin = s.afterZoomIn, zmax = s.afterZoomMax, zmin = s.afterZoomMin, zfloor = s.afterZoomFloor;
       const ratio = (a, b) => (a && b && a.yellowW > 0) ? b.yellowW / a.yellowW : null;
+      // The sticker's PAINTED width is clipped once it runs past the canvas edge, so it
+      // understates the scale at the top of the range (measured 4.39 where the true scale
+      // was 8). The selection frame's width is never clipped and is projected through the
+      // same view, so it is the honest measure of scale.
+      const frameRatio = (a, b) => (a && b && a.frameW > 0) ? b.frameW / a.frameW : null;
       const before = r.exportBefore;
       const after = r.exportAfter;
 
@@ -180,8 +192,13 @@
       out.steps.push(['sizeRatio', r0]);
 
       const maxR = ratio(t0, zmax);
-      out.pinchClampsZoomRange = !!maxR && maxR <= 8.6 && maxR > 1.5;
+      // The top clamp, measured on the unclipped frame: a 90px -> 300px pinch from x3
+      // demands scale 10 and must stop at 8, so 8.000 is the answer to assert. The old
+      // bound read the clipped painted width (4.39) and would have passed a cap of 12.
+      const maxFrameR = frameRatio(t0, zmax);
+      out.pinchClampsZoomRange = !!maxFrameR && maxFrameR >= 7.4 && maxFrameR <= 8.6;
       out.steps.push(['maxZoomRatio', maxR]);
+      out.steps.push(['maxZoomFrameRatio', maxFrameR]);
       const minR = ratio(t0, zmin);
       // The low clamp, stated as the clamp and not as an exact product. At the maximum
       // zoom (scale 8) a pinch from 30px to 6px is 8 * (6/30) = exactly 1.6 - which sat
@@ -190,10 +207,14 @@
       // state) and never goes below fit (scale >= 1). Both halves still fail if the
       // clamp breaks or the pinch-in stops working.
       const reduction = maxR && minR ? minR / maxR : null;
+      // ...and the floor itself, proved by a pinch that would overshoot it: from fit,
+      // a 300px -> 4px pinch demands scale 0.02 and must land on 1, not below.
+      const floorR = frameRatio(t0, zfloor);
       out.pinchClampsMinZoom = !!maxR && maxR > 1.5 && !!minR && minR >= 0.95 &&
-        !!reduction && reduction < 0.6;
+        !!reduction && reduction < 0.6 && !!floorR && floorR >= 0.95 && floorR <= 1.05;
       out.steps.push(['minZoomRatio', minR]);
       out.steps.push(['minOverMaxRatio', reduction]);
+      out.steps.push(['floorZoomRatio', floorR]);
 
       // The sticker rides the image: frame width / sticker width stays constant.
       const f0 = (t0 && t0.yellowW) ? t0.frameW / t0.yellowW : null;

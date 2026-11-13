@@ -32,7 +32,8 @@ probe must never read as success).
 
 | Probe | Criteria | State |
 |---|---|---|
-| `probe.js` — the user journey (upload → stickers → nudge → undo → export, pixels asserted) | 23 | green |
+| `probe.js` — the user journey (upload → stickers → nudge → undo → export, pixels asserted) | 27 | green |
+| `photo-boundary-probe.js` — a new photo starts clean, the carry-over is explicit and one undo step | 9 | green |
 | `selection-probe.js` — the frame wraps the drawn sticker, before and after a real handle drag | 8 | green |
 | `delete-probe.js` — double-click removes the topmost sticker, one undo step, empty-canvas no-op | 8 | green |
 | `handles-probe.js` — markers are small, the hit area stays finger-sized, alignment kept | 5 | green (touch) |
@@ -41,9 +42,11 @@ probe must never read as success).
 | `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **4 green** — not implemented |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 
-`layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js` and
-`diag-mobile-metrics-probe.js` are **diagnostics**, not gates: they print app
-internals (view, tap bookkeeping, sticker positions) and device metrics (picker
+`layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js`,
+`diag-mobile-metrics-probe.js`, `diag-zoom-internals-probe.js` and
+`diag-layer-perf-probe.js` are **diagnostics**, not gates: they print app
+internals (view, tap bookkeeping, sticker positions, `createElement` calls per
+drag gesture) and device metrics (picker
 target size, canvas backing vs CSS box vs DPR, decoded-emoji count, page height)
 for triage. `layout-probe` in particular reports the preview box vs the backing
 store's aspect ratio, stage vs viewport, thumbnails.

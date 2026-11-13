@@ -84,6 +84,12 @@
     await placeSticker(0.3, 0.4);
     await placeSticker(0.65, 0.45);
     const beforeApply = layers();
+    // Snapshot the normalized geometry BEFORE the carry-over: it must come through
+    // identically. Comparing only "in bounds" (the previous form) would pass even if
+    // the carry-over swapped or randomized the positions.
+    const norm = () => window.__stickerface.store.orderedStickers()
+      .map((s) => [s.cx, s.cy, s.w, s.h]);
+    const normBeforeApply = norm();
     $('btn-apply-next').click();     // arms the layout, then opens the picker
     await sleep(250);
     await loadFile(fileB);           // the "next photo"
@@ -92,13 +98,20 @@
     log('layersBeforeApply', beforeApply);
     log('layersAfterApply', afterApply);
 
-    // Positions must be identical (normalized coordinates are reused as-is).
-    const norm = () => window.__stickerface.store.orderedStickers()
-      .map((s) => [Math.round(s.cx * 1000) / 1000, Math.round(s.cy * 1000) / 1000, Math.round(s.w * 1000) / 1000]);
     const normAfterApply = norm();
-    log('normAfterApply', normAfterApply);
-    r.applyLayoutKeepsNormalizedPositions = normAfterApply.length === 2 &&
-      normAfterApply.every(([cx, cy]) => cx > 0 && cx < 1 && cy > 0 && cy < 1);
+    const near = (a, b) => Math.abs(a - b) < 1e-6;
+    r.applyLayoutKeepsNormalizedPositions = normBeforeApply.length === 2 &&
+      normAfterApply.length === 2 &&
+      normBeforeApply.every((row, i) => row.every((v, j) => near(v, normAfterApply[i][j])));
+    const round3 = (list) => list.map((row) => row.map((v) => Math.round(v * 1000) / 1000));
+    log('normBeforeApply', round3(normBeforeApply));
+    log('normAfterApply', round3(normAfterApply));
+
+    // The carry-over across a changed aspect ratio must SAY so: the fixture is 1200x800
+    // (1.5) and photo B is 900x1200 (0.75) - a 100% drift, well past the 5% threshold.
+    const statusText = $('export-status').textContent || '';
+    r.aspectDriftIsWarned = /aspect ratio differs/i.test(statusText);
+    log('exportStatus', statusText.slice(0, 140));
 
     // --- 4. that carry-over is ONE undoable step ------------------------------
     await undo();
