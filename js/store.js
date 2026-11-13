@@ -96,7 +96,7 @@ export class Store {
 
   add(sticker) {
     const before = this._snapshot();
-    // z must stay unique and in array order to match _reorder's renumbering:
+    // z must stay unique and in array order to match moveTo's renumbering:
     // after a delete, `length + 1` can collide with an existing sticker.
     const nextZ = this.state.stickers.reduce((m, s) => Math.max(m, s.z ?? 0), 0) + 1;
     const base = {
@@ -189,25 +189,26 @@ export class Store {
   }
 
   raise(id) {
-    this._reorder(id, +1);
+    const index = this.state.stickers.findIndex((s) => s.id === id);
+    this.moveTo(id, index + 1);
   }
 
   lower(id) {
-    this._reorder(id, -1);
+    const index = this.state.stickers.findIndex((s) => s.id === id);
+    this.moveTo(id, index - 1);
   }
 
-  _reorder(id, dir) {
-    const index = this.state.stickers.findIndex((s) => s.id === id);
-    if (index < 0) return;
-    const neighbour = index + dir;
-    if (neighbour < 0 || neighbour >= this.state.stickers.length) return;
+  /** Move a sticker to an array position (0 = bottom). One undo entry. */
+  moveTo(id, index) {
+    const from = this.state.stickers.findIndex((s) => s.id === id);
+    if (from < 0) return;
+    const to = Math.max(0, Math.min(this.state.stickers.length - 1, index));
+    if (to === from) return;
     const before = this._snapshot();
-    const [item] = this.state.stickers.splice(index, 1);
-    this.state.stickers.splice(neighbour, 0, item);
-    // Keep z in sync with array order (render paints ascending z).
-    this.state.stickers.forEach((s, i) => {
-      s.z = i + 1;
-    });
+    const [item] = this.state.stickers.splice(from, 1);
+    this.state.stickers.splice(to, 0, item);
+    // z stays in lockstep with array order: render paints ascending z.
+    this.state.stickers.forEach((s, i) => { s.z = i + 1; });
     const after = this._snapshot();
     this._push({ undo: () => this._restore(before), redo: () => this._restore(after) });
     // Its own event type: the layer list must rebuild when the ORDER changes.
