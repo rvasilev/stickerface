@@ -241,13 +241,11 @@ function drawEmoji(ctx, sticker, bitmap, imgW, imgH, scale, customBitmaps, fallb
     ctx.restore();
     return true;
   }
-  // drawImage stretches to the box; keep the source aspect (letterbox fit).
-  const sw = src.width ?? src.naturalWidth;
-  const sh = src.height ?? src.naturalHeight;
-  const fit = Math.min(wPx / sw, hPx / sh);
-  const dw = sw * fit;
-  const dh = sh * fit;
-  ctx.drawImage(src, -dw / 2, -dh / 2, dw, dh);
+  // Fill the sticker box: the box IS the drawn size (selection wraps it),
+  // so letterboxing would inset the art inside the frame. Stretching a
+  // square emoji bitmap into a square-in-px box is a no-op; a custom image
+  // is intentionally fit-to-box the same way.
+  ctx.drawImage(src, -wPx / 2, -hPx / 2, wPx, hPx);
   ctx.restore();
   return true;
 }

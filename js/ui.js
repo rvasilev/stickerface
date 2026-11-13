@@ -295,11 +295,19 @@ export class CanvasApp {
       box.hidden = true;
       return;
     }
+    // Overlay coords are CSS px inside .canvas-wrap (which shrink-wraps the
+    // canvas). The backing store (canvasW/H) is CSS px divided by
+    // backingScale (canvasW / cssW); rect is in natural px, so multiply by
+    // the combined factor to reach CSS px. Using this.scale alone would size
+    // the frame in backing px — the "handles not around the emoji" bug.
     const rect = stickerRect(st, this.image.naturalWidth, this.image.naturalHeight);
-    const cw = rect.w * this.scale;
-    const ch = rect.h * this.scale;
-    const bx = rect.x * this.scale;
-    const by = rect.y * this.scale;
+    const canvasRect = this.els.canvas.getBoundingClientRect();
+    const backingScale = canvasRect.width > 0 ? this.canvasW / canvasRect.width : 1;
+    const k = this.scale / backingScale;
+    const cw = rect.w * k;
+    const ch = rect.h * k;
+    const bx = rect.x * k;
+    const by = rect.y * k;
 
     box.hidden = false;
     // The chrome box is the UN-rotated rect (keeps handle buttons simple);
@@ -455,11 +463,15 @@ export class CanvasApp {
       this.customBitmaps.set(src, bitmap);
       // A custom-image sticker behaves like an emoji sticker (translate/
       // rotate draw) but keeps its own bitmap slot; kind 'custom'.
+      // Square in pixels too, so the handles wrap the drawn image.
+      const w = 0.18;
+      const imgW = this.image?.naturalWidth ?? 0;
+      const imgH = this.image?.naturalHeight ?? 0;
       this.store.add({
         kind: 'custom',
         src,
-        w: 0.18,
-        h: 0.18,
+        w,
+        h: imgW > 0 && imgH > 0 ? (w * imgW) / imgH : w,
       });
     } catch {
       URL.revokeObjectURL(url);
@@ -512,8 +524,18 @@ export class CanvasApp {
         const cy = norm(pt.y, this.image.naturalHeight);
         if (tool === 'emoji') {
           const src = this.lastPickedSrc;
-          // Square default; emoji keepAspect is handled on corner drags.
-          this.store.add({ kind: 'emoji', src, cx, cy, w: 0.18, h: 0.18, rot: 0 });
+          // Square in pixels (not normalized: h = w * imgW / imgH) so the
+          // frame wraps the drawn art on non-square photos.
+          const w = 0.18;
+          this.store.add({
+            kind: 'emoji',
+            src,
+            cx,
+            cy,
+            w,
+            h: (w * this.image.naturalWidth) / this.image.naturalHeight,
+            rot: 0,
+          });
         } else {
           this.store.add({ kind: tool, cx, cy, w: 0.28, h: 0.28, rot: 0 });
         }

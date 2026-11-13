@@ -117,11 +117,45 @@
     if (b && se) {
       const sr = se.getBoundingClientRect();
       window.__sfBefore = b;
+      window.__sfStickerOnScreen = () => {
+        const cvs = document.getElementById('stage-canvas');
+        const rr = cvs.getBoundingClientRect();
+        const sx = rr.width / cvs.width;
+        const sy = rr.height / cvs.height;
+        const probe = document.createElement('canvas');
+        probe.width = cvs.width;
+        probe.height = cvs.height;
+        const pctx = probe.getContext('2d');
+        pctx.drawImage(cvs, 0, 0);
+        const data = pctx.getImageData(0, 0, probe.width, probe.height).data;
+        let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1, hits = 0;
+        for (let y = 0; y < probe.height; y++) {
+          for (let x = 0; x < probe.width; x++) {
+            const i = (y * probe.width + x) * 4;
+            const R = data[i], G = data[i + 1], B = data[i + 2];
+            if (R >= 235 && R <= 255 && G >= 184 && G <= 224 && B >= 57 && B <= 97) {
+              hits++;
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+        if (hits <= 200) return null;
+        const left = rr.left + minX * sx;
+        const top = rr.top + minY * sy;
+        const w = (maxX - minX + 1) * sx;
+        const h = (maxY - minY + 1) * sy;
+        return { left, top, w, h, cx: left + w / 2, cy: top + h / 2 };
+      };
       window.__sfRead = () => {
         const f = frame();
         const out = { steps: [] };
         if (!f) {
           out.seHandleDragResizes = false;
+          out.frameMatchesStickerAfterResize = false;
+          out.frameStaysCenteredAfterRotate = false;
           out.steps.push(['afterResize', null]);
           return JSON.stringify(out);
         }
@@ -134,6 +168,60 @@
           (f.top - window.__sfBefore.top).toFixed(1),
         ]]);
         out.frameStaysAnchored = Math.abs(f.left - window.__sfBefore.left) <= 4 && Math.abs(f.top - window.__sfBefore.top) <= 4;
+        // Re-measure the drawn emoji after the resize: the frame must still wrap it.
+        const d2 = window.__sfStickerOnScreen();
+        if (d2) {
+          out.steps.push(['stickerOnScreenAfterResize', { left: Math.round(d2.left), top: Math.round(d2.top), w: Math.round(d2.w), h: Math.round(d2.h) }]);
+          out.steps.push(['frameVsStickerAfterResize', [
+            'dx=' + (f.left - d2.left).toFixed(1),
+            'dy=' + (f.top - d2.top).toFixed(1),
+            'dw=' + (f.w - d2.w).toFixed(1),
+            'dh=' + (f.h - d2.h).toFixed(1),
+          ]]);
+          out.frameMatchesStickerAfterResize =
+            Math.abs(f.left - d2.left) <= 6 && Math.abs(f.top - d2.top) <= 6 &&
+            Math.abs(f.w - d2.w) <= 8 && Math.abs(f.h - d2.h) <= 8;
+          // Save the rotated-phase anchors now (frame + sticker centres).
+          window.__sfAfterResize = { f, d2 };
+          // --- 3. rotate via the rotate handle, driven in a second phase ------
+          const rotEl = document.querySelector('[data-handle="rotate"]');
+          const rotRect = rotEl ? rotEl.getBoundingClientRect() : null;
+          const rr = rotRect ?? null;
+          if (rr) {
+            const cx = f.cx, cy = f.cy;
+            const rad = Math.PI / 6;
+            window.__sfReadRotate = () => {
+              const fr = frame();
+              const dd = window.__sfStickerOnScreen();
+              const out2 = { steps: [] };
+              if (!fr || !dd) {
+                out2.frameStaysCenteredAfterRotate = false;
+                out2.steps.push(['afterRotate', null]);
+                return JSON.stringify(out2);
+              }
+              out2.steps.push(['frameCentreAfterRotate', [Math.round(fr.cx), Math.round(fr.cy)]]);
+              out2.steps.push(['stickerCentreAfterRotate', [Math.round(dd.cx), Math.round(dd.cy)]]);
+              out2.steps.push(['rotateCentreError', [(fr.cx - dd.cx).toFixed(2), (fr.cy - dd.cy).toFixed(2)]]);
+              out2.frameStaysCenteredAfterRotate = Math.abs(fr.cx - dd.cx) <= 6 && Math.abs(fr.cy - dd.cy) <= 6;
+              return JSON.stringify(out2);
+            };
+            const startX = rr.left + rr.width / 2;
+            const startY = rr.top + rr.height / 2;
+            const dx = startX - cx;
+            const dy = startY - cy;
+            const ndx = dx * Math.cos(rad) - dy * Math.sin(rad);
+            const ndy = dx * Math.sin(rad) + dy * Math.cos(rad);
+            window.__sfNextRotate = {
+              x0: startX,
+              y0: startY,
+              x1: cx + ndx,
+              y1: cy + ndy,
+            };
+          }
+        } else {
+          out.frameMatchesStickerAfterResize = false;
+          out.frameStaysCenteredAfterRotate = false;
+        }
         return JSON.stringify(out);
       };
       r.nextDrag = {
@@ -145,6 +233,8 @@
     } else {
       r.seHandleDragResizes = false;
       r.frameStaysAnchored = false;
+      r.frameMatchesStickerAfterResize = false;
+      r.frameStaysCenteredAfterRotate = false;
       log('seHandle', 'missing');
     }
   } catch (e) {

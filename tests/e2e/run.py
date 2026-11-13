@@ -81,6 +81,7 @@ async def main(probe_path, url_match="8123"):
         # (Input.dispatchMouseEvent) — a synthetic dispatchEvent pointerdown has no
         # active pointer, so `setPointerCapture` throws and the drag never starts.
         drag_result = None
+        rotate_result = None
         try:
             first = json.loads(res["result"]["result"].get("value") or "{}")
         except Exception:
@@ -107,6 +108,37 @@ async def main(probe_path, url_match="8123"):
                 "awaitPromise": True, "returnByValue": True, "timeout": 20000,
             })
             drag_result = read["result"]["result"].get("value")
+            # Optional second drag (rotate): the resize reader may have armed
+            # window.__sfNextRotate + window.__sfReadRotate.
+            rotate_plan = await send("Runtime.evaluate", {
+                "expression": "window.__sfNextRotate ? JSON.stringify(window.__sfNextRotate) : null",
+                "awaitPromise": True, "returnByValue": True, "timeout": 20000,
+            })
+            rotate_json = rotate_plan["result"]["result"].get("value")
+            if rotate_json:
+                try:
+                    rplan = json.loads(rotate_json)
+                except Exception:
+                    rplan = None
+                if rplan:
+                    rx0, ry0, rx1, ry1 = rplan["x0"], rplan["y0"], rplan["x1"], rplan["y1"]
+                    await send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": rx0, "y": ry0, "buttons": 0})
+                    await send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": rx0, "y": ry0, **base})
+                    for i in range(1, steps + 1):
+                        await send("Input.dispatchMouseEvent", {
+                            "type": "mouseMoved",
+                            "x": rx0 + (rx1 - rx0) * i / steps,
+                            "y": ry0 + (ry1 - ry0) * i / steps,
+                            **base,
+                        })
+                        await asyncio.sleep(0.03)
+                    await send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": rx1, "y": ry1, **base})
+                    await asyncio.sleep(0.4)
+                    read2 = await send("Runtime.evaluate", {
+                        "expression": "window.__sfReadRotate ? window.__sfReadRotate() : null",
+                        "awaitPromise": True, "returnByValue": True, "timeout": 20000,
+                    })
+                    rotate_result = read2["result"]["result"].get("value")
 
         try:
             while True:
@@ -156,13 +188,15 @@ async def main(probe_path, url_match="8123"):
                 checks[k] = v
 
     # Phase-2 (real-input drag) results, when the probe asked for one.
-    if drag_result:
+    for label, raw in (("drag phase", drag_result), ("rotate phase", rotate_result)):
+        if not raw:
+            continue
         try:
-            second = json.loads(drag_result)
+            second = json.loads(raw)
         except Exception:
             second = None
         if isinstance(second, dict):
-            print("=== drag phase ===")
+            print(f"=== {label} ===")
             for k, v in second.get("steps", []):
                 print(f"{k}: {json.dumps(v)}")
             for e in second.get("errors", []):
@@ -171,8 +205,8 @@ async def main(probe_path, url_match="8123"):
                 if isinstance(v, bool):
                     checks[k] = v
         else:
-            print("=== drag phase ===")
-            print(str(drag_result)[:800])
+            print(f"=== {label} ===")
+            print(str(raw)[:800])
 
     print("=== checks ===")
     for k, v in checks.items():
