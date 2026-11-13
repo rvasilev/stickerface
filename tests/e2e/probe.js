@@ -58,7 +58,21 @@
     log('exportEnabledAfterImage', r.exportEnabledAfterImage);
     log('exportStatusText', document.getElementById('export-status').textContent);
 
-    // --- 4. drop emoji / blur / mosaic stickers -------------------------------
+    // --- 4. drop stickers -----------------------------------------------------
+    // v1 shows emoji + custom-image stickers only: blur/mosaic/About are hidden
+    // (user request 2026-11-13). The probe asserts they are UNREACHABLE and then
+    // places two emoji stickers, so the multi-sticker/export criteria still run.
+    const unreachable = (id) => {
+      const el = document.getElementById(id);
+      return !!el && (el.hidden || el.offsetParent === null);
+    };
+    r.blurControlHidden = unreachable('tool-blur');
+    r.mosaicControlHidden = unreachable('tool-mosaic');
+    r.aboutControlHidden = unreachable('btn-about');
+    r.blurSettingsHidden = unreachable('tool-settings');
+    r.aboutPanelHidden = document.getElementById('about-panel').hidden;
+    r.customStickerHidden = unreachable('custom-label') && unreachable('custom-input');
+    r.attributionVisible = !!document.querySelector('.footer a[href*="twemoji"]');
     const at = (nx, ny) => ({ clientX: rect.left + (nx / 1200) * rect.width, clientY: rect.top + (ny / 800) * rect.height });
     const place = async (nx, ny) => {
       const o = { bubbles: true, cancelable: true, pointerId: 1, isPrimary: true, pointerType: 'mouse', ...at(nx, ny) };
@@ -69,9 +83,10 @@
     await place(600, 380);
     r.emojiStickerDrops = document.getElementById('layer-list').children.length === 1;
     r.selectionChromeShown = !document.getElementById('select-box').hidden;
-    document.getElementById('tool-blur').click();    await place(280, 240);
-    document.getElementById('tool-mosaic').click();  await place(920, 620);
+    await place(280, 240);
+    await place(920, 620);
     r.threeStickers = document.getElementById('layer-list').children.length === 3;
+    r.activeToolStaysEmoji = document.getElementById('tool-emoji').getAttribute('aria-pressed') === 'true';
     log('layers', document.getElementById('layer-list').children.length);
 
     // --- 5. keyboard nudge + undo --------------------------------------------

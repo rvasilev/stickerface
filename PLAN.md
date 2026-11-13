@@ -343,6 +343,27 @@ highest-value manual-mode feature: a family photo set is 10 near-identical shots
 - Detection is opt-in and lazy: the model is fetched only when the user clicks
   "Detect faces".
 
+## Disabled in v1 (2026-11-13)
+
+Per user request, these controls are **hidden but implemented** (a layout carrying a
+blur patch still renders and exports; removing one `hidden` attribute in
+`index.html` restores each):
+
+| Control | Element | Guard required in `js/ui.js` |
+|---|---|---|
+| Blur tool | `#tool-blur` | refuse to activate while hidden |
+| Mosaic tool | `#tool-mosaic` | refuse to activate while hidden |
+| Strength / corner-radius sliders | `#tool-settings` | hidden with the tools |
+| About button + panel | `#btn-about`, `#about-panel` | hidden |
+| "Use my own image" | `#custom-label`, `#custom-input` | refuse to load a custom file while hidden |
+
+- The CC-BY attribution that lived only in the About panel moved to a visible page
+  footer (`footer.footer`) — the licence obligation is not optional.
+- The probe asserts reachability (`offsetParent === null`); once the ui.js guards
+  land it also asserts that a programmatic click on a hidden tool does not switch
+  the tool and a programmatic `change` on the hidden file input adds no sticker
+  (`toolCannotBeActivatedWhileHidden`, `customStickerCannotBeLoadedWhileHidden`).
+
 ## Milestones
 
 | # | Deliverable | Gate | State |

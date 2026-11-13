@@ -20,10 +20,15 @@
         <button type="button" id="tool-emoji" class="tool" aria-pressed="true" title="Emoji sticker (click canvas to drop)">
           <span class="tool-icon" aria-hidden="true">😀</span><span class="tool-label">Emoji</span>
         </button>
-        <button type="button" id="tool-blur" class="tool" aria-pressed="false" title="Blur patch (click canvas to drop)">
+        <!-- Blur / mosaic / About are switched off for v1 (user request 2026-11-13).
+             The elements stay in the DOM so js/ui.js keeps resolving them; remove the
+             `hidden` attribute (and the matching one on #tool-settings and
+             #about-panel) to bring them back. `hidden` alone is not a guarantee —
+             ui.js must also refuse to activate a tool whose control is hidden. -->
+        <button type="button" id="tool-blur" class="tool" aria-pressed="false" hidden title="Blur patch (click canvas to drop)">
           <span class="tool-icon" aria-hidden="true">◍</span><span class="tool-label">Blur</span>
         </button>
-        <button type="button" id="tool-mosaic" class="tool" aria-pressed="false" title="Mosaic patch (click canvas to drop)">
+        <button type="button" id="tool-mosaic" class="tool" aria-pressed="false" hidden title="Mosaic patch (click canvas to drop)">
           <span class="tool-icon" aria-hidden="true">▦</span><span class="tool-label">Mosaic</span>
         </button>
       </div>
@@ -45,7 +50,7 @@
       </div>
 
       <div class="group">
-        <button type="button" id="btn-about" aria-expanded="false" aria-controls="about-panel">About</button>
+        <button type="button" id="btn-about" aria-expanded="false" aria-controls="about-panel" hidden>About</button>
       </div>
 
       <div class="group help" aria-label="Keyboard shortcuts">
@@ -90,11 +95,16 @@
       <section aria-labelledby="picker-heading">
         <h2 id="picker-heading">Emoji</h2>
         <div class="picker" id="emoji-picker" role="listbox" aria-label="Emoji picker"></div>
-        <label class="file-btn small" for="custom-input">Use my own image…<input type="file" id="custom-input" accept="image/*"></label>
-        <p class="note">Your image is decoded in this tab only — never uploaded.</p>
+        <!-- "Use my own image" is switched off for v1 (user request 2026-11-13), same
+             contract as the blur/mosaic controls: the input stays in the DOM so
+             js/ui.js keeps resolving it, and ui.js must refuse to load a custom
+             sticker while it is hidden. -->
+        <label class="file-btn small" for="custom-input" id="custom-label" hidden>Use my own image…<input type="file" id="custom-input" accept="image/*" hidden></label>
+        <p class="note" id="privacy-note">Your image is decoded in this tab only — never uploaded.</p>
       </section>
 
-      <section aria-labelledby="strength-heading">
+      <section aria-labelledby="strength-heading" id="tool-settings" hidden>
+        <!-- Blur/mosaic settings — hidden with the tools themselves (v1). -->
         <h2 id="strength-heading">Strength <span id="strength-value" class="mono">18</span></h2>
         <input type="range" id="strength" min="2" max="80" step="1" value="18" aria-label="Blur sigma or mosaic block size (px at full scale)">
         <h2>Corner radius <span id="radius-value" class="mono">0.50</span></h2>
@@ -119,6 +129,15 @@
       </section>
     </aside>
   </div>
+
+  <footer class="footer">
+    <p>
+      Emoji artwork: <a href="https://github.com/jdecked/twemoji">Twemoji</a> by X Corp. and
+      contributors — licensed CC-BY 4.0 (see <code>assets/emoji/ATTRIBUTION.md</code>).
+      StickerFace itself is MIT; the artwork is not. Photos are decoded in this tab only —
+      nothing is uploaded.
+    </p>
+  </footer>
 
   <script type="module" src="js/app.js"></script>
 </body>

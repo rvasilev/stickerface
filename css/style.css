@@ -147,26 +147,40 @@ kbd {
   pointer-events: none;
   z-index: 5;
 }
+/* Stem joining the frame to the rotate handle, so the floating dot reads as a
+   control rather than a stray artefact. */
+.select-box::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -15px;
+  width: 1px;
+  height: 15px;
+  background: var(--accent);
+  opacity: 0.75;
+}
 .select-box .handle {
   position: absolute;
-  width: 32px;
-  height: 32px;
-  margin: -16px 0 0 -16px;
-  background: var(--surface);
-  border: 1.5px solid var(--accent);
-  border-radius: 6px;
+  /* SMALL MARKER, FINGER-SIZED TARGET: the visible square is 12 CSS px; the
+     invisible ::before below extends the hit area to 32 CSS px (12 + 10 + 10),
+     so a finger still catches it without a big blob sitting on the photo. */
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  background: var(--accent);
+  border: 1px solid var(--surface);
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
   padding: 0;
   pointer-events: auto;
   touch-action: none;
   cursor: nwse-resize;
 }
-.select-box .handle::after {
+.select-box .handle::before {
   content: '';
   position: absolute;
-  inset: 9px;
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  border-radius: 2px;
+  inset: -10px;
+  background: transparent;
 }
 .handle[data-handle='nw'] { left: 0; top: 0; }
 .handle[data-handle='n']  { left: 50%; top: 0; cursor: ns-resize; }
@@ -178,7 +192,10 @@ kbd {
 .handle[data-handle='w']  { left: 0; top: 50%; cursor: ew-resize; }
 .handle.rotate {
   left: 50%;
-  top: -32px;
+  top: -22px;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
   border-radius: 50%;
   background: var(--accent);
   cursor: grab;
@@ -290,4 +307,16 @@ a { color: var(--accent); }
   .panel { order: 3; border-left: none; border-top: 1px solid var(--border); }
   .picker { grid-template-columns: repeat(8, 1fr); }
   .canvas-wrap canvas { max-height: 60vh; }
+}
+
+.footer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.9rem 1rem 1.6rem;
+  color: var(--text-dim);
+}
+.footer p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
 }

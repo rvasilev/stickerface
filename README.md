@@ -23,9 +23,7 @@ python3 -m http.server 8000      # file:// does NOT work (ES modules)
 
 v1 manual placement (images only — video is not supported):
 
-- Three sticker kinds: **emoji** (curated Twemoji set, plus "use my own
-  image" custom stickers), **blur** patches (adjustable strength and corner
-  radius) and **mosaic** (pixelate) patches
+- **Emoji stickers** from a curated Twemoji set; click the canvas to drop one
 - Click to drop, drag to move, 8 resize handles (corners keep aspect,
   `Shift` frees it) and a rotate handle (`Shift` snaps to 15°)
 - Full-resolution export: PNG (default) or JPEG (quality 0.92), always
@@ -47,6 +45,35 @@ v1 manual placement (images only — video is not supported):
 
 Roadmap: automatic face detection (v2) via a self-hosted MediaPipe BlazeFace
 model. Video is explicitly out of scope.
+
+## Disabled in v1 (buttons hidden, code retained)
+
+Requested 2026-11-13: *"disable blur, mosaic, about buttons"* and *"disable use my
+own image as sticker functionality"*. These are **hidden, not deleted** — the code
+path stays (a layout saved with a blur patch still renders and exports), and each
+control comes back by removing one `hidden` attribute in `index.html`:
+
+| Control | Element |
+|---|---|
+| Blur tool | `#tool-blur` |
+| Mosaic tool | `#tool-mosaic` |
+| Blur/mosaic settings (strength, corner radius) | `#tool-settings` |
+| About button + panel | `#btn-about`, `#about-panel` |
+| "Use my own image" custom sticker | `#custom-label` / `#custom-input` |
+
+Two consequences that are contract, not polish:
+
+- **Attribution must stay reachable.** The About panel was the only place the
+  CC-BY 4.0 Twemoji credit appeared in the UI, so the same credit moved into a
+  visible page footer — dropping it would break the licence obligation.
+- **Hiding is not disabling.** A hidden `<button>` still fires its handler if
+  clicked programmatically and a hidden file input still fires `change`, so
+  `js/ui.js` must refuse to activate a tool or load a custom sticker whose control
+  is hidden (`toolCannotBeActivatedWhileHidden`,
+  `customStickerCannotBeLoadedWhileHidden`).
+
+Emoji is the only sticker the UI offers; blur/mosaic/custom remain implemented and
+unit-tested at the store/render level.
 
 ## Development
 
