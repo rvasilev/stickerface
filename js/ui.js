@@ -484,7 +484,9 @@ export class CanvasApp {
   _syncLayerList() {
     const list = this.els.layerList;
     list.replaceChildren();
-    const ordered = this.store.orderedStickers();
+    // Topmost-first, like every other editor: the store keeps ascending-z
+    // array order; only this loop's direction changes.
+    const ordered = [...this.store.orderedStickers()].reverse();
     this.els.layerEmpty.hidden = ordered.length > 0;
     this._layerRows = [];
     this._layerCount = ordered.length;
