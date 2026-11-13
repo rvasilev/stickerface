@@ -372,7 +372,7 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M0** | repo, README, LICENSE, index.html canvas, image upload, draggable emoji sticker | upload → drag → export PNG | **done** |
 | **M1** | handles + rotate, undo, layer list, blur + mosaic kinds, full-res export, keyboard | `npm test` + browser probe green | **done** (after the decode fix) |
 | **M2** | emoji picker (curated Twemoji set), custom image sticker, "same layout next photo" | probe + manual batch of 3 photos | **done**; batch flow needs a manual pass |
-| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 26/26 + the other green probes, exit 0; CI workflow on push | **done** (CI added 2026-11-13) |
+| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 27/27 + the other green probes, exit 0; CI workflow on push | **done** (CI added 2026-11-13) |
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
 | **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `npm run e2e:mobile` = 12/12 (incl. double-tap delete + zero leaked contacts), desktop probes green | **done** (2026-11-13) |
 | **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 8/8, M5 gate still green | **spec'd, not started** |

@@ -45,7 +45,6 @@ export class CanvasApp {
     this.bitmaps = new Map();
     this.fallback = new Map();
     this.customBitmaps = new Map();
-    this.ready = false;
     this.image = null; // HTMLImageElement (+ .name)
     this._layerRows = []; // [{id, label}] — last built layer rows, for geometry-only title updates
     this._layerCount = 0; // stickers.length at the last full rebuild
@@ -96,7 +95,6 @@ export class CanvasApp {
     const { bitmaps, fallback, ready, loaded, total } = await decodeEmojiBitmaps();
     this.bitmaps = bitmaps;
     this.fallback = fallback ?? new Map();
-    this.ready = ready;
     this.onStateChange();
     if (!ready) {
       this.setExportStatus(
