@@ -39,7 +39,7 @@ probe must never read as success).
 | `handles-probe.js` — markers are small, the hit area stays finger-sized, alignment kept | 5 | green (touch) |
 | `mobile-probe.js` — one finger = sticker ops, two fingers = pan, second finger cancels a drag, double-tap deletes | 12 | green |
 | `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag, and the contact count returns to zero | 8 | green |
-| `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **4 green** — not implemented |
+| `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **3 green** — not implemented |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 
@@ -146,6 +146,14 @@ rather than letting "no change" read as success.
   underscore-prefixed paths are dropped.
 - **Needs Python `websockets`** (present on this box). No Playwright/Puppeteer is
   installed and this harness deliberately does not add one.
+- **A leaked harness server holds the port the next run needs.** `$!` from
+  `( cd … && python3 -m http.server … ) &` is the *subshell*, not the listener, so
+  killing it can leave the server running — 109 orphans had piled up on the dev
+  box before anyone noticed, on ports no one was watching. `scripts/e2e.sh` reaps
+  by PORT (`HTTP_PORT` and `CDP_PORT`) on entry *and* on exit, plus any
+  `python3 -m http.server` whose cwd is this repo or an `/tmp/sf-*` copy; a server
+  you started by hand for another project is never touched. **Do not hand-roll a
+  runner with its own port** — that is how the orphans got there.
 - **Verify against an isolated copy when something else is writing to the tree.**
   A delegated agent editing `js/ui.js` makes local runs lie — the failures belong to
   its unfinished work. Build a clean tree at HEAD and run the gates there:

@@ -24,16 +24,88 @@ PROFILE="$(mktemp -d /tmp/sf-chrome-XXXXXX)"
 [ -x "$CHROME_BIN" ] || { echo "e2e: no Chrome/Chromium found (set CHROME_BIN)" >&2; exit 2; }
 [ -f "$REPO/tests/e2e/fixture.jpg" ] || python3 "$REPO/scripts/make-fixture.py"
 
+# --- teardown by PORT, not by captured PID -----------------------------------
+# `( cd … && python3 -m http.server … ) &` gives $! the SUBSHELL; bash may or may
+# not exec into python, so the captured PID is not reliably the listener. Killing
+# it left the server running: 109 orphans had accumulated on this box (ports
+# 8181-8631) before anyone noticed, and each one holds a port the next run wants.
+# A leaked listener also makes the NEXT run fail in a confusing way -- bind
+# refusal for the server, or Chrome attaching to the stale browser so the probe
+# measures a page nobody reloaded.
+
+port_pids() {   # $1 = tcp port -> one PID per line
+  local p="$1" pids=""
+  if command -v ss >/dev/null 2>&1; then
+    pids="$(ss -ltnp "sport = :$p" 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2)"
+  fi
+  if [ -z "$pids" ] && command -v lsof >/dev/null 2>&1; then
+    pids="$(lsof -ti "tcp:$p" -sTCP:LISTEN 2>/dev/null)"
+  fi
+  if [ -z "$pids" ] && command -v fuser >/dev/null 2>&1; then
+    pids="$(fuser -n tcp "$p" 2>/dev/null | tr -s ' ' '\n')"
+  fi
+  printf '%s\n' "$pids" | tr -s ' \t' '\n' | grep -E '^[0-9]+$' | sort -u
+}
+
+kill_pid() {    # $1 = pid: TERM, then KILL if it will not go
+  local pid="$1"
+  [ -n "$pid" ] && [ "$pid" != "$$" ] || return 0
+  kill "$pid" 2>/dev/null || return 0
+  for _ in $(seq 1 10); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.2
+  done
+  kill -9 "$pid" 2>/dev/null || true
+}
+
+reap_port() {   # $1 = port, $2 = label
+  local pids
+  pids="$(port_pids "$1")"
+  [ -n "$pids" ] || return 0
+  echo "e2e: reaping stale $2 on :$1 (pid $(echo "$pids" | tr '\n' ' '))" >&2
+  local pid
+  for pid in $pids; do kill_pid "$pid"; done
+}
+
+# A hand-rolled `python3 -m http.server` outlives the shell that started it, and
+# the ad-hoc runners that leaked these picked their own ports -- the port reap
+# above cannot see them. Scope is deliberately narrow: only a server whose CWD is
+# this repo or an /tmp/sf-* isolated copy (the workflow docs/VERIFICATION.md
+# describes) is touched, so a dev server for any other project is never
+# collateral.
+reap_stray_servers() {
+  local pid cwd
+  for pid in $(pgrep -f '^python3 -m http\.server' 2>/dev/null); do
+    [ "$pid" != "$$" ] || continue
+    cwd="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
+    case "$cwd" in
+      "$REPO"|"$REPO"/*|/tmp/sf-*)
+        echo "e2e: reaping stray server pid $pid (cwd=$cwd)" >&2
+        kill_pid "$pid" ;;
+    esac
+  done
+}
+
 SERVER_PID=""
 CHROME_PID=""
+# shellcheck disable=SC2329  # invoked by the EXIT trap below
 cleanup() {
   [ -n "$CHROME_PID" ] && kill "$CHROME_PID" 2>/dev/null
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null
   wait 2>/dev/null
+  reap_port "$HTTP_PORT" "http server"
+  reap_port "$CDP_PORT" "headless Chrome"
+  reap_stray_servers
   # Chrome flushes its profile on exit; retry briefly so the temp dir goes away.
   for _ in 1 2 3 4 5; do rm -rf "$PROFILE" 2>/dev/null && break; sleep 0.3; done
 }
 trap cleanup EXIT
+
+# Reap BEFORE binding: a leftover holding either port is the difference between
+# a clean run and an "Address already in use" nobody can explain.
+reap_port "$HTTP_PORT" "http server"
+reap_port "$CDP_PORT" "headless Chrome"
+reap_stray_servers
 
 if [ -z "$TARGET" ]; then
   ( cd "$REPO" && python3 -m http.server "$HTTP_PORT" >/tmp/sf-e2e-http.log 2>&1 ) &
