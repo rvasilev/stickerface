@@ -1,0 +1,15 @@
+{
+  "name": "stickerface",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hide faces in photos with an emoji, blur or mosaic sticker — entirely in the browser.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "serve": "python3 -m http.server 8000"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  },
+  "license": "MIT"
+}
