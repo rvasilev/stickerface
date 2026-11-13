@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Minimal Chrome DevTools Protocol driver for the StickerFace E2E probe.
+
+Why hand-rolled: no Playwright/Puppeteer is installed here, and the Hermes CDP
+tool refuses loopback page URLs. `websockets` is enough to drive a headless
+Chrome that was started with --remote-debugging-port.
+
+Usage:
+  # 1. serve the app
+  python3 -m http.server 8123
+  # 2. headless chrome pointed at it (start it with the URL as an argument)
+  google-chrome-stable --headless=new --remote-debugging-port=9222 \
+      --user-data-dir=/tmp/sf-chrome --no-first-run --disable-gpu \
+      "http://127.0.0.1:8123/index.html"
+  # 3. run a probe
+  python3 tests/e2e/run.py tests/e2e/probe.js
+
+Exit code is 0 when the probe returned a result; the probe's own PASS/FAIL keys
+carry the assertions.
+"""
+import asyncio
+import json
+import sys
+import urllib.request
+
+import websockets
+
+CDP_HTTP = "http://127.0.0.1:9222"
+
+
+def page_target(match="8123"):
+    with urllib.request.urlopen(f"{CDP_HTTP}/json/list") as r:
+        for t in json.load(r):
+            if t.get("type") == "page" and match in t.get("url", ""):
+                return t
+    raise SystemExit(f"no page target whose url contains {match}")
+
+
+async def main(probe_path):
+    probe = "/" + probe_path.lstrip("/")
+    target = page_target()
+    events = []
+    async with websockets.connect(target["webSocketDebuggerUrl"], max_size=64 * 1024 * 1024) as ws:
+        counter = 0
+
+        async def send(method, params=None):
+            nonlocal counter
+            counter += 1
+            mid = counter
+            await ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+            while True:
+                msg = json.loads(await ws.recv())
+                if msg.get("id") == mid:
+                    return msg
+                events.append(msg)
+
+        await send("Runtime.enable")
+        await send("Page.enable")
+        await send("Page.reload", {"ignoreCache": True})
+        await asyncio.sleep(2.5)
+
+        # top-level await is illegal in a classic script, hence the async wrapper
+        expr = f"(async () => await eval(await (await fetch('{probe}')).text()))()"
+        res = await send(
+            "Runtime.evaluate",
+            {"expression": expr, "awaitPromise": True, "returnByValue": True, "timeout": 60000},
+        )
+        try:
+            while True:
+                events.append(json.loads(await asyncio.wait_for(ws.recv(), timeout=0.4)))
+        except Exception:
+            pass
+
+    problems = []
+    for e in events:
+        m = e.get("method")
+        if m == "Runtime.exceptionThrown":
+            d = e["params"]["exceptionDetails"]
+            desc = d.get("exception", {}).get("description", "")
+            problems.append(f"EXCEPTION {d.get('text')} {desc[:300]}")
+        elif m == "Runtime.consoleAPICalled" and e["params"].get("type") in ("error", "warning"):
+            args = " ".join(str(a.get("value", a.get("description", ""))) for a in e["params"]["args"])
+            problems.append(f"CONSOLE {e['params']['type']}: {args[:300]}")
+
+    print("=== console / uncaught exceptions ===")
+    print("\n".join(problems) if problems else "(none)")
+
+    result = res.get("result", {}).get("result", {})
+    if result.get("subtype") == "error":
+        print("=== eval failed ===")
+        print(json.dumps(res["result"])[:1500])
+        return 1
+
+    print("=== probe result ===")
+    value = result.get("value")
+    if not value:
+        print(json.dumps(res)[:1500])
+        return 1
+    data = json.loads(value)
+    if isinstance(data, dict) and "steps" in data:
+        for k, v in data["steps"]:
+            print(f"{k}: {json.dumps(v)}")
+        for e in data.get("errors", []):
+            print("PROBE ERROR: " + e)
+    else:
+        print(json.dumps(data, indent=1))
+    print("=== failures ===")
+    if isinstance(data, dict):
+        fails = [k for k, v in data.items() if v is False] if "steps" not in data else []
+        print(fails or "(none reported as boolean false)")
+    return 0
+
+
+if __name__ == "__main__":
+    path = sys.argv[1] if len(sys.argv) > 1 else "tests/e2e/probe.js"
+    sys.exit(asyncio.run(main(path)))
