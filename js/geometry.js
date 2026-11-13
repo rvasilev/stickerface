@@ -314,9 +314,13 @@ export function clampViewPan(view, cssW, cssH) {
   const h = finite(cssH);
   const maxX = w > 0 ? (w * scale) * 0.75 : 0;
   const maxY = h > 0 ? (h * scale) * 0.75 : 0;
+  const rawDx = finite(view?.dx);
+  const rawDy = finite(view?.dy);
+  // Genuine pan offset: move toward zero when it is beyond the scaled
+  // allowance; a plain focal zoom stays inside, a zoom-out overshoots.
   return {
-    dx: Math.max(-maxX, Math.min(maxX, dx)),
-    dy: Math.max(-maxY, Math.min(maxY, dy)),
+    dx: Math.max(-maxX, Math.min(maxX, rawDx)),
+    dy: Math.max(-maxY, Math.min(maxY, rawDy)),
     scale,
   };
 }

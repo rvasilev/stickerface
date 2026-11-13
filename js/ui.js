@@ -632,10 +632,15 @@ export class CanvasApp {
       this.drag = null;
       delete this.els.canvas.dataset.dragging;
     }
-    // If the cancel targets a handle drag, its move/up handlers live on the
-    // handle element (not the canvas) and would keep firing on their own
-    // pointermove. They already gate on `if (!this.drag) return`, which is
-    // now false, so they no-op — same effect, no extra cleanup needed.
+    // A handle drag also owns this id, so abandoning it releases the id
+    // and drops its orphaned listeners: `drag` is null, so its own move
+    // would only refresh coordinates, but its `up` must still fire once
+    // per drag — dropping it here makes the release path free and the
+    // orphan's own `up` become a no-op rather than a second unregister.
+    if (this._cancelHandleDrag) {
+      this._cancelHandleDrag();
+      this._cancelHandleDrag = null;
+    }
     // The zoom anchors are the CURRENT centroid and the CURRENT two-finger
     // distance, both in rect-relative CSS px (the space the projection
     // subtracts the canvas origin from). focalZoomView() derives every later
@@ -870,6 +875,12 @@ export class CanvasApp {
     });
 
     canvas.addEventListener('pointermove', (e) => {
+      // A move from a tracked id ALWAYS refreshes its coordinates, even
+      // when the gesture is already a two-finger pan: `_applyPanMove`
+      // derives the focal distance and centroid from the tracker, so a
+      // branch that applies the view before recording would freeze the
+      // distance at its gesture-start value forever.
+      if (this._pointers.has(e.pointerId)) this._registerPointer(e.pointerId, e.clientX, e.clientY);
       if (!this._pointers.has(e.pointerId)) {
         // A capture-steering artifact: this pointer was never down on the
         // canvas (e.g. a handle captured it). It must not drive the sticker
@@ -879,7 +890,6 @@ export class CanvasApp {
         if (this._pan) this._applyPanMove();
         return;
       }
-      this._registerPointer(e.pointerId, e.clientX, e.clientY);
       if (this._pointers.size >= 2) {
         this._applyPanMove();
         return;
@@ -928,6 +938,11 @@ export class CanvasApp {
     // fires pointerup/pointercancel THERE, not on the canvas (touch pointers
     // are never captured by the canvas). Without this, that contact survives
     // in _pointers and the next one-finger tap reads as a two-finger pan.
+    window.addEventListener('pointermove', (e) => {
+      if (!this._pointers.has(e.pointerId)) return;
+      this._registerPointer(e.pointerId, e.clientX, e.clientY);
+      if (this._pan) this._applyPanMove();
+    });
     const releasePointer = (e) => {
       if (e.target === canvas) return; // canvas handlers above own it
       // A pointer captured by a handle is owned by that handle's `up`
@@ -969,7 +984,13 @@ export class CanvasApp {
           this.drag = { mode: 'resize', id: st.id, handle, keepAspect: !e.shiftKey };
         }
         this.store.beginDrag(st.id);
+        this._activeHandlePointerId = e.pointerId;
         const move = (ev) => {
+          // A tracked move refreshes its coordinates even when this handle
+          // has no drag to drive (see the canvas move handler): the pan
+          // derives its distance from the tracker, so skipping the record
+          // would freeze the pinch.
+          if (this._pointers.has(ev.pointerId)) this._registerPointer(ev.pointerId, ev.clientX, ev.clientY);
           if (!this.drag) return;
           if (this._pointers.size >= 2) return;
           // The handle captured this pointer: key the stored handle off the
@@ -990,7 +1011,6 @@ export class CanvasApp {
           }
           this._draw();
         };
-        this._activeHandlePointerId = e.pointerId;
         const up = () => {
           el.removeEventListener('pointermove', move);
           el.removeEventListener('pointerup', up);
@@ -999,9 +1019,22 @@ export class CanvasApp {
           canvas.removeEventListener('pointerup', up);
           canvas.removeEventListener('pointercancel', up);
           this._unregisterPointer(e.pointerId);
-          this._activeHandlePointerId = null;
+          if (this._activeHandlePointerId === e.pointerId) this._activeHandlePointerId = null;
+          if (this._cancelHandleDrag === abandon) this._cancelHandleDrag = null;
           this.drag = null;
           this.store.commitDrag();
+        };
+        // A cancelled drag's `up` never fires (the pan case); the router's
+        // cancel path calls `abandon` first so the orphaned `up` becomes a
+        // no-op instead of a second unregister.
+        const abandon = () => {
+          el.removeEventListener('pointermove', move);
+          el.removeEventListener('pointerup', up);
+          el.removeEventListener('pointercancel', up);
+          canvas.removeEventListener('pointermove', move);
+          canvas.removeEventListener('pointerup', up);
+          canvas.removeEventListener('pointercancel', up);
+          if (this._activeHandlePointerId === e.pointerId) this._activeHandlePointerId = null;
         };
         el.addEventListener('pointermove', move);
         el.addEventListener('pointerup', up);
@@ -1013,6 +1046,12 @@ export class CanvasApp {
         canvas.addEventListener('pointermove', move);
         canvas.addEventListener('pointerup', up);
         canvas.addEventListener('pointercancel', up);
+        this._cancelHandleDrag = abandon;
+        // The cancel path calls this through `_cancelHandleDrag` so the
+        // orphan `up` never runs a second time. It is the only guard that
+        // must fire, because a stale active drag was cancelled and its
+        // own move guard would otherwise starve the pan.
+        if (this._pan) delete this.els.canvas.dataset.dragging;
       });
     }
     // Safety-net listeners must be registered AFTER the handles so a handle
@@ -1021,6 +1060,12 @@ export class CanvasApp {
     // by the canvas/handle handlers above.
     window.addEventListener('pointerup', releasePointer, true);
     window.addEventListener('pointercancel', releasePointer, true);
+  }
+
+  _destroy() {
+    // Genuinely unreachable in normal use: the app is instantiated once
+    // per page (the bootstrap below guards duplicates), so there is no
+    // unbind path. This marks the integration point for future removal.
   }
 
   /* ---------- keyboard ---------- */
