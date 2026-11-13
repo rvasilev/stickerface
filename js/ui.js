@@ -201,13 +201,66 @@ export class CanvasApp {
     const canvas = this.els.canvas;
     canvas.width = this.canvasW;
     canvas.height = this.canvasH;
-    // CSS size follows the canvas; cap height for small screens.
-    canvas.style.width = `${this.canvasW}px`;
-    canvas.style.height = `${this.canvasH}px`;
     this.els.empty.hidden = true;
     this.els.wrap.hidden = false;
     this.els.hint.hidden = false;
+    this._fitCssSize();
     this._draw();
+  }
+
+  _fitCssSize() {
+    const canvas = this.els.canvas;
+    const W = this.canvasW;
+    const H = this.canvasH;
+    if (!W || !H || !this.image) return;
+    // Clear the previous fit so the box cannot inherit a stale aspect from
+    // a different image. The CSS box must have the same aspect as the backing
+    // store: a box with different width/height ratios is how canvas's
+    // `object-fit: fill` (the default) stretches the preview and breaks the
+    // normalized->screen mapping the probe clicks through.
+    canvas.style.width = '';
+    canvas.style.height = '';
+    canvas.style.aspectRatio = `${W} / ${H}`;
+    // Reserve the aspect box once the stage has a width. Without this the
+    // wrap is 0-height at first paint and the observer below never fires
+    // (it only fires on *changes*), leaving the canvas at its intrinsic
+    // size, several screens tall.
+    requestAnimationFrame(() => this._applyFitCanvas());
+    if (typeof ResizeObserver !== 'undefined' && !this._resizeObserver) {
+      this._resizeObserver = new ResizeObserver(() => this._applyFitCanvas());
+      this._resizeObserver.observe(this.els.stage);
+    }
+  }
+
+  _applyFitCanvas() {
+    if (!this.image || !this.canvasW || !this.canvasH) return;
+    const wAvail = this.els.stage.clientWidth;
+    if (!wAvail) return;
+    const hAvail = this.els.stage.clientHeight;
+    const W = this.canvasW;
+    const H = this.canvasH;
+    // Fit the box to the stage's available area. A stage height derived from
+    // `100vh` guarantees the preview never extends past the fold. Cap the
+    // box by the CSS `max-width/max-height` as well so the probe's
+    // `canvasFitsViewport` check (canvas, not stage) holds at every window
+    // size, including very short ones.
+    let scale = Math.min(wAvail / W, hAvail / H);
+    if (window.innerWidth && window.innerHeight) {
+      scale = Math.min(
+        scale,
+        window.innerWidth / W,
+        window.innerHeight / H,
+      );
+    }
+    scale = Math.min(scale, 1);
+    if (!(scale > 0)) return;
+    const canvas = this.els.canvas;
+    // Set the CSS box explicitly, from the same aspect as the backing store.
+    // `canvasCss = canvasBacking * scale` keeps the box aspect==-backing
+    // aspect, so the photo is never stretched and the pointer mapping
+    // (CSS px -> canvasW/H -> scale) stays exact.
+    canvas.style.width = `${Math.round(W * scale)}px`;
+    canvas.style.height = `${Math.round(H * scale)}px`;
   }
 
   /* ---------- painting + selection chrome ---------- */
@@ -541,7 +594,8 @@ export class CanvasApp {
           el.removeEventListener('pointermove', move);
           el.removeEventListener('pointerup', up);
           el.removeEventListener('pointercancel', up);
-          this.drag = null;
+    this.drag = null;
+    this._resizeObserver = null;
           this.store.commitDrag();
         };
         el.addEventListener('pointermove', move);

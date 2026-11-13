@@ -42,5 +42,37 @@
     out.selectBox = { left: Math.round(sr.left), top: Math.round(sr.top), w: Math.round(sr.width), h: Math.round(sr.height) };
     out.selectBoxInsideCanvas = sr.left >= r.left - 1 && sr.right <= r.right + 1 && sr.top >= r.top - 1 && sr.bottom <= r.bottom + 1;
   }
+  // --- portrait round-trip: a tall image must also get a correct box ------
+  // Generated in-page (no network, no fixture regeneration): a deterministic
+  // 800x1200 JPEG uploaded through the same file input. The acceptance gate
+  // uses the landscape fixture; portrait is where a naive width-only fit
+  // gives a box taller than the window.
+  out.portrait = await (async () => {
+    const w = 800, h = 1200;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const cx = c.getContext('2d');
+    cx.fillStyle = 'rgb(20,60,120)'; cx.fillRect(0, 0, w, h);
+    cx.fillStyle = 'rgb(230,180,120)'; cx.fillRect(300, 400, 200, 200);
+    const pb = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.95));
+    const dt2 = new DataTransfer();
+    dt2.items.add(new File([pb], 'portrait.jpg', { type: 'image/jpeg' }));
+    const inp2 = document.getElementById('file-input');
+    inp2.files = dt2.files;
+    inp2.dispatchEvent(new Event('change', { bubbles: true }));
+    // Poll until backing store matches the portrait image (it was 1200x800).
+    for (let i = 0; i < 80; i++) {
+      if (canvas.width === 800 && canvas.height === 1200) break;
+      await sleep(100);
+    }
+    await sleep(250); // let _applyFitCanvas settle after the resize
+    const r2 = canvas.getBoundingClientRect();
+    return {
+      canvasBacking: [canvas.width, canvas.height],
+      cssBox: [Math.round(r2.width), Math.round(r2.height)],
+      cssAspect: +(r2.width / r2.height).toFixed(4),
+      aspectDistortion: +((r2.width / r2.height) / (canvas.width / canvas.height)).toFixed(4),
+    };
+  })();
   return JSON.stringify(out, null, 1);
 })()

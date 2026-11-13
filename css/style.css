@@ -39,7 +39,8 @@ h2 { font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color
 .layout {
   display: grid;
   grid-template-columns: 200px 1fr 280px;
-  min-height: calc(100vh - 3.2rem);
+  height: calc(100vh - 3.2rem);
+  min-height: 0;
   gap: 0;
 }
 
@@ -97,8 +98,9 @@ kbd {
   display: grid;
   place-items: center;
   padding: 1rem;
-  min-height: 60vh;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
+  height: 100%;
 }
 .stage-empty {
   border: 2px dashed var(--border);
@@ -116,10 +118,20 @@ kbd {
   font-size: 0.78rem;
   color: var(--text-dim);
 }
-.canvas-wrap { position: relative; line-height: 0; }
-.canvas-wrap canvas {
+.canvas-wrap {
+  position: relative;
+  line-height: 0;
+  /* Grid-item sizing guard: without this the wrap is as wide as the canvas'
+     intrinsic width, the stage column overflows, and the canvas's
+     max-width:100% (of the *wrap*) only shrinks its width while its auto
+     height stays at the intrinsic height -> the exact 875x778 distortion.
+     `max-width:100%` must constrain the wrap first, not the canvas. */
   max-width: 100%;
-  max-height: calc(100vh - 9rem);
+  max-height: 100%;
+  justify-self: center;
+  align-self: center;
+}
+.canvas-wrap canvas {
   width: auto;
   height: auto;
   background: #000;
