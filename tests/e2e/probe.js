@@ -23,7 +23,12 @@
     log('pickerButtons', pickerButtons);
 
     // --- 2. load a photo ------------------------------------------------------
-    const blob = await (await fetch('/tests/e2e/fixture.jpg')).blob();
+    // Relative path: the app is served at the origin root locally but under
+    // /stickerface/ on GitHub Pages (a root-absolute path 404s there).
+    const fixtureRes = await fetch('tests/e2e/fixture.jpg');
+    const blob = await fixtureRes.blob();
+    r.fixtureLoaded = fixtureRes.ok && blob.size > 1000 && blob.type.startsWith('image/');
+    log('fixture', [fixtureRes.status, blob.type, blob.size]);
     const dt = new DataTransfer();
     dt.items.add(new File([blob], 'fixture.jpg', { type: 'image/jpeg' }));
     const input = document.getElementById('file-input');
