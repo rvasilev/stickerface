@@ -197,15 +197,15 @@ export class CanvasApp {
     const img = new Image();
     img.onload = () => {
       img.name = file.name || 'photo';
-      const prevAspect = prevAspectOf(this.pendingLayout, this.image);
+      const pending = this.pendingLayout;
+      const prevAspect = prevAspectOf(pending, this.image);
+      this.pendingLayout = null;
       this.image = img;
-      this.store.setImage(img);
-      // "Apply layout to next photo" keeps the normalized sticker layout;
-      // warn when the aspect drifts by more than 5%.
-      if (this.pendingLayout) {
-        const prev = this.pendingLayout;
-        this.pendingLayout = null;
-        this.store.setStickers(prev);
+      this.store.setImage(img, { resetStickers: true });
+      if (pending) {
+        // The carried layout is the only undo entry on this photo: history
+        // was cleared by the boundary above, so one undo empties the canvas.
+        this.store.setStickers(pending);
         if (prevAspect > 0) {
           const nextAspect = img.naturalWidth / img.naturalHeight;
           const drift = Math.abs(nextAspect / prevAspect - 1);

@@ -190,3 +190,61 @@ describe('Store — double-click net-zero (place then delete)', () => {
     expect(store.state.selection).toBeNull();
   });
 });
+
+describe('Store — photo boundary', () => {
+  it('setImage with resetStickers leaves zero stickers and drops selection', () => {
+    const { store } = makeStore();
+    store.add({ kind: 'emoji', cx: 0.3, cy: 0.3 });
+    store.add({ kind: 'emoji', cx: 0.7, cy: 0.7 });
+    store.setImage({ name: 'b.jpg', naturalWidth: 800, naturalHeight: 1200 }, { resetStickers: true });
+    expect(store.state.image.name).toBe('b.jpg');
+    expect(store.state.stickers).toHaveLength(0);
+    expect(store.state.selection).toBeNull();
+  });
+
+  it('clears undo and redo history at the boundary', () => {
+    const { store } = makeStore();
+    store.add({ kind: 'emoji' });
+    store.undo();
+    expect(store.canRedo).toBe(true);
+    store.redo();
+    store.setImage({ name: 'b.jpg' }, { resetStickers: true });
+    expect(store.canUndo).toBe(false);
+    expect(store.canRedo).toBe(false);
+    expect(store._undo).toHaveLength(0);
+    expect(store._redo).toHaveLength(0);
+  });
+
+  it('undo after a reset cannot restore the previous photo stickers', () => {
+    const { store } = makeStore();
+    store.add({ kind: 'emoji', cx: 0.3, cy: 0.3 });
+    store.add({ kind: 'emoji', cx: 0.7, cy: 0.7 });
+    store.setImage({ name: 'b.jpg' }, { resetStickers: true });
+    expect(store.undo()).toBe(false);
+    expect(store.state.stickers).toHaveLength(0);
+    expect(store.state.image.name).toBe('b.jpg');
+  });
+
+  it('clearHistory alone drops both stacks', () => {
+    const { store } = makeStore();
+    store.add({ kind: 'emoji' });
+    store.clearHistory();
+    expect(store.canUndo).toBe(false);
+    expect(store.undo()).toBe(false);
+    expect(store.state.stickers).toHaveLength(1);
+  });
+
+  it('the carried layout is exactly one undoable step', () => {
+    const { store } = makeStore();
+    store.add({ kind: 'emoji', cx: 0.3, cy: 0.4 });
+    store.add({ kind: 'emoji', cx: 0.65, cy: 0.45 });
+    const layout = store.orderedStickers().map((s) => ({ ...s }));
+    store.setImage({ name: 'b.jpg' }, { resetStickers: true });
+    store.setStickers(layout);
+    expect(store.state.stickers).toHaveLength(2);
+    expect(store.undo()).toBe(true);
+    expect(store.state.stickers).toHaveLength(0);
+    expect(store.redo()).toBe(true);
+    expect(store.state.stickers).toHaveLength(2);
+  });
+});

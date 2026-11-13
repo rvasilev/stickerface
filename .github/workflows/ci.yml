@@ -88,3 +88,8 @@ jobs:
           E2E_MOBILE: "1"
           E2E_PROBE: tests/e2e/zoom-probe.js
         run: bash scripts/e2e.sh
+
+      - name: Gate — a new photo starts clean and undo cannot cross photos
+        env:
+          E2E_PROBE: tests/e2e/photo-boundary-probe.js
+        run: bash scripts/e2e.sh

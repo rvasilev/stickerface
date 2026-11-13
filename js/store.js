@@ -214,7 +214,20 @@ export class Store {
     this._emit({ type: 'tool', tool });
   }
 
-  setImage(image) {
+  clearHistory() {
+    this._undo.length = 0;
+    this._redo.length = 0;
+    this._drag = null;
+  }
+
+  setImage(image, { resetStickers = false } = {}) {
+    if (resetStickers) {
+      // A new photo starts clean: the old photo's stickers and the undo
+      // snapshots that could restore them must not survive the boundary.
+      this.state.stickers = [];
+      this.state.selection = null;
+      this.clearHistory();
+    }
     this.state.image = image ?? null;
     this._emit({ type: 'image' });
   }
