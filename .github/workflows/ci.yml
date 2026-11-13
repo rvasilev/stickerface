@@ -82,3 +82,9 @@ jobs:
           E2E_MOBILE: "1"
           E2E_PROBE: tests/e2e/tap-after-pan-probe.js
         run: bash scripts/e2e.sh
+
+      - name: Gate — two-finger image pinch-zoom (focal, clamped, view-only)
+        env:
+          E2E_MOBILE: "1"
+          E2E_PROBE: tests/e2e/zoom-probe.js
+        run: bash scripts/e2e.sh
