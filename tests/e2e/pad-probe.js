@@ -94,7 +94,9 @@
         h.dispatchEvent(new PointerEvent('pointermove', { ...o, clientX: x, clientY: y }));
         h.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: x, clientY: y }));
         await sleep(150);
-        snaps.shrink = rect(box);
+        // Same shape as every other snap: the reader addresses .box, and a flat
+        // rect here made tinyStickerIsMovable unconditionally false.
+        snaps.shrink = { box: rect(box), undo: app.store._undo.length };
         return true;
       }
       snaps[name] = { box: rect(box), undo: app.store._undo.length };
@@ -154,11 +156,11 @@
       out.tinyStickerIsMovable = smallW !== undefined && smallW <= 32 && tinyMove !== undefined && tinyMove <= -5;
 
       out.steps.push(['sizes', { t0: t0 && t0.box.w, smallW, afterSizeDown: sz && sz.box.w }]);
-      out.steps.push(['up1', up1, 'across1', across1]);
-      out.steps.push(['holdTravel', holdTravel, 'undoGrew', undoGrew]);
-      out.steps.push(['up10', up10, 'ratio', ratio]);
-      out.steps.push(['shrinkK', shrinkK, 'aspectKept', aspKept]);
-      out.steps.push(['tinyMove', tinyMove, 'smallW', smallW]);
+      out.steps.push(['nudge1', { up1, across1 }]);
+      out.steps.push(['hold', { holdTravel, undoGrew }]);
+      out.steps.push(['step10', { up10, ratio }]);
+      out.steps.push(['sizeDown', { shrinkK, aspKept }]);
+      out.steps.push(['tiny', { tinyMove, smallW }]);
       return JSON.stringify(out);
     };
 

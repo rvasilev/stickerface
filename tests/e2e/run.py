@@ -30,6 +30,17 @@ import websockets
 CDP_HTTP = os.environ.get("CDP_HTTP", "http://127.0.0.1:9222")
 
 
+def print_step(step):
+    """Print one probe `steps` entry. The contract is a [label, value] pair, but a
+    probe that pushes more is a probe bug worth SEEING rather than a traceback that
+    takes the whole result set down with it."""
+    if isinstance(step, list) and step:
+        label, rest = step[0], step[1:]
+        print(f"{label}: " + " ".join(json.dumps(x) for x in rest))
+    else:
+        print(json.dumps(step))
+
+
 def page_target(match="8123"):
     with urllib.request.urlopen(f"{CDP_HTTP}/json/list") as r:
         for t in json.load(r):
@@ -287,6 +298,15 @@ async def main(probe_path, url_match="8123"):
                     "awaitPromise": True, "returnByValue": True, "timeout": 20000,
                 })
                 touch_result = read3["result"]["result"].get("value")
+                if not touch_result:
+                    # A reader that throws is otherwise dropped in silence: the
+                    # phase contributes no criteria, the probe still prints a
+                    # check list, and a MISSING criterion reads as "not tested"
+                    # only if someone counts. Report it as a failed reader.
+                    res3 = read3.get("result", {}).get("result", {})
+                    detail = res3.get("description") or json.dumps(res3)[:400]
+                    print("=== touch phase: READER FAILED ===")
+                    print(detail)
 
         try:
             while True:
@@ -321,8 +341,8 @@ async def main(probe_path, url_match="8123"):
         return 1
     data = json.loads(value)
     if isinstance(data, dict) and "steps" in data:
-        for k, v in data["steps"]:
-            print(f"{k}: {json.dumps(v)}")
+        for step in data["steps"]:
+            print_step(step)
         for e in data.get("errors", []):
             print("PROBE ERROR: " + e)
     else:
@@ -346,8 +366,8 @@ async def main(probe_path, url_match="8123"):
             second = None
         if isinstance(second, dict):
             print(f"=== {label} ===")
-            for k, v in second.get("steps", []):
-                print(f"{k}: {json.dumps(v)}")
+            for step in second.get("steps", []):
+                print_step(step)
             for e in second.get("errors", []):
                 print("PHASE ERROR: " + e)
             for k, v in second.items():
