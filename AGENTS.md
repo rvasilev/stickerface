@@ -56,11 +56,20 @@ npm run serve                 # python3 -m http.server 8000 (file:// will NOT wo
 A change is done when ALL of these hold:
 
 1. `npm test` passes (real output, pasted in the summary).
-2. `npm run e2e` prints `12/12 passed` and `E2E_EXIT=0`.
-3. The E2E "console / uncaught exceptions" section prints `(none)`.
-4. `README.md` "Features" still matches what the code actually does — no
-   overclaiming. If you did not finish something, say so explicitly.
-5. No new runtime dependency, no network request after first load.
+2. `npm run e2e` prints `23/23 passed` and `E2E_EXIT=0` (the count grows as
+   criteria are added — quote the number you actually saw, never a remembered one).
+3. Any gate your change touches is green too, run through the same harness:
+   `E2E_PROBE=tests/e2e/selection-probe.js npm run e2e` (8/8),
+   `E2E_PROBE=tests/e2e/delete-probe.js npm run e2e` (8/8),
+   `E2E_MOBILE=1 E2E_PROBE=tests/e2e/handles-probe.js npm run e2e` (5/5),
+   `npm run e2e:mobile` (the touch gate). `docs/VERIFICATION.md` lists every probe
+   with its current state — **a probe that is red for a known reason stays red and
+   is not in CI**; say which gates you did not run.
+4. The E2E "console / uncaught exceptions" section prints `(none)`.
+5. The spec still describes the code: if behaviour changed, `PLAN.md`,
+   `docs/ARCHITECTURE.md`, `docs/VERIFICATION.md` and `README.md` "Features" were
+   updated in the same commit. A stale rule is an instruction the next agent obeys.
+6. No new runtime dependency, no network request after first load.
 
 Unit tests alone are **not** enough. The first build of this repo passed 48/48
 unit tests while the product's only job was dead (see "Pitfalls" below).
@@ -111,8 +120,12 @@ unit tests while the product's only job was dead (see "Pitfalls" below).
 ## Attribution (non-negotiable)
 
 - **Twemoji graphics: CC-BY 4.0.** Keep `assets/emoji/ATTRIBUTION.md`, the credit
-  line in `README.md`, and the About panel credits intact. The code is MIT; the
+  line in `README.md`, **and the visible page footer** intact. The code is MIT; the
   artwork is not.
+  The credit used to live only in the About panel; that panel is hidden in v1, so
+  the credit moved to `footer.footer` in `index.html`. Do not delete it and do not
+  re-expose it only inside the hidden panel — a credit nobody can reach is a
+  licence breach, not a UI preference.
 - Detection/design lessons come from `ORB-HD/deface` (MIT) and
   `kmcheung12/faceblind`. Credit them by name and link.
 - Never present borrowed work as original. If you port code, name the source in
