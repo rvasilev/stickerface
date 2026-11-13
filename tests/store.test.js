@@ -92,6 +92,76 @@ describe('Store — basics', () => {
   });
 });
 
+describe('Store — moveTo', () => {
+  it('moves a sticker to any array position, with z renumbered 1..n in array order', () => {
+    const { store } = makeStore();
+    const a = store.add({ id: 'a', kind: 'emoji' });
+    const b = store.add({ id: 'b', kind: 'emoji' });
+    const c = store.add({ id: 'c', kind: 'emoji' });
+    store.moveTo(a.id, 2);
+    expect(store.state.stickers.map((s) => s.id)).toEqual(['b', 'c', 'a']);
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2, 3]);
+    expect(store.orderedStickers().map((s) => s.id)).toEqual(['b', 'c', 'a']);
+    store.moveTo(c.id, 0);
+    expect(store.state.stickers.map((s) => s.id)).toEqual(['c', 'b', 'a']);
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2, 3]);
+  });
+
+  it('clamps at both ends, and an out-of-range call is a no-op', () => {
+    const { store } = makeStore();
+    const a = store.add({ id: 'a', kind: 'emoji' });
+    store.add({ id: 'b', kind: 'emoji' });
+    const depth = store._undo.length;
+    store.moveTo(a.id, 99); // clamped to the top
+    expect(store.state.stickers.map((s) => s.id)).toEqual(['b', 'a']);
+    store.moveTo(a.id, -99); // clamped to the bottom
+    expect(store.state.stickers.map((s) => s.id)).toEqual(['a', 'b']);
+    expect(store._undo.length).toBe(depth + 2);
+    // Already at the clamped position: nothing to push.
+    store.moveTo(a.id, -5);
+    expect(store._undo.length).toBe(depth + 2);
+    store.moveTo('nope', 0);
+    expect(store._undo.length).toBe(depth + 2);
+  });
+
+  it('a same-index move pushes NO undo entry', () => {
+    const { store } = makeStore();
+    const a = store.add({ id: 'a', kind: 'emoji' });
+    store.add({ id: 'b', kind: 'emoji' });
+    const depth = store._undo.length;
+    store.moveTo('b', 1);
+    expect(store._undo.length).toBe(depth);
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2]);
+  });
+
+  it('raise then undo restores the original order and z', () => {
+    const { store } = makeStore();
+    store.add({ id: 'a', kind: 'emoji' });
+    store.add({ id: 'b', kind: 'emoji' });
+    store.add({ id: 'c', kind: 'emoji' });
+    store.raise('a');
+    expect(store.state.stickers.map((s) => s.id)).toEqual(['b', 'a', 'c']);
+    store.undo();
+    expect(store.state.stickers.map((s) => s.id)).toEqual(['a', 'b', 'c']);
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2, 3]);
+  });
+
+  it('is exactly one undo step for a long drag', () => {
+    const { store } = makeStore();
+    const first = store.add({ id: 'a', kind: 'emoji' });
+    store.add({ id: 'b', kind: 'emoji' });
+    store.add({ id: 'c', kind: 'emoji' });
+    store.add({ id: 'd', kind: 'emoji' });
+    store.add({ id: 'e', kind: 'emoji' });
+    const depth = store._undo.length;
+    store.moveTo(first.id, 4);
+    expect(store._undo.length).toBe(depth + 1);
+    expect(store.state.stickers.map((s) => s.id)).toEqual(['b', 'c', 'd', 'e', 'a']);
+    store.undo();
+    expect(store.state.stickers.map((s) => s.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+});
+
 describe('Store — undo/redo', () => {
   it('undoes and redoes an add', () => {
     const { store } = makeStore();
