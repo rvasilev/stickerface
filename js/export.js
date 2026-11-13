@@ -102,7 +102,7 @@ function currentMaxCanvasPixels() {
  * @param {object} [opts] {cap} — override the canvas-area cap (tests / odd engines)
  * @returns {{canvas: HTMLCanvasElement, compositeSize: object}} paint store, never blank
  */
-export function compositeCanvas(state, bitmaps, customBitmaps, fallback, opts) {
+function compositeCanvas(state, bitmaps, customBitmaps, fallback, opts) {
   const image = state.image;
   if (!image) throw new Error('No image loaded');
   const W = image.naturalWidth;

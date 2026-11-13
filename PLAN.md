@@ -26,7 +26,6 @@ stickerface/
   index.html          # single page
   css/style.css
   js/
-    app.js            # bootstrap: wires UI + canvas + store
     store.js          # state + command-pattern undo/redo
     geometry.js       # PURE. normalized<->pixel, hit-test, handles, rotate
     render.js         # draws base image + each sticker (emoji/custom/blur/mosaic)

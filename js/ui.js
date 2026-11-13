@@ -312,11 +312,6 @@ export class CanvasApp {
   // second offset anywhere. Pan (view.dx/dy, CSS px) and pinch-zoom
   // (view.scale, 1…8) are applied in this ONE place; export passes view
   // 0,0,scale 1 (it composites at natural size).
-  _previewScale() {
-    const r = this.els.canvas.getBoundingClientRect();
-    if (!r.width || !this.canvasW) return 0;
-    return r.width / this.canvasW;
-  }
 
   // CSS px -> canvas px, subtracting the view pan and dividing by the zoom:
   // the inverse of the one projection, so placement and hit-testing track a

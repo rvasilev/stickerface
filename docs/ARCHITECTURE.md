@@ -7,15 +7,17 @@ else is imported from there.
 ```
 index.html              markup only: toolbar, stage, canvas, right panel, About
 css/style.css           all styling; no external fonts
-js/app.js               entry: `new CanvasApp(document)` — nothing else
-js/ui.js                CanvasApp: DOM wiring, pointer state machine, selection
-                        chrome (8 resize handles + rotate handle), layer list
+js/ui.js                entry (index.html loads this): CanvasApp — DOM wiring,
+                        pointer state machine, selection chrome (8 resize
+                        handles + rotate handle), layer list
 js/store.js             Store: state + command-pattern undo/redo + subscribe()
 js/geometry.js          PURE maths: px/norm, stickerRect, handlePositions,
                         hitTest, resizeRect, rotateTo, nudge
 js/render.js            paint(), requestDraw() (rAF-coalesced), emoji bitmap
                         decoding with an SVG fallback, blur + mosaic effects
-js/export.js            compositeCanvas() at natural size, exportImage(), download
+js/export.js            capped-canvas export guard (maxCanvasPixels/exportSize,
+                        pure), compositeCanvas() at the largest size that fits,
+                        exportImage(), download
 js/emoji.js             GENERATED manifest of the bundled Twemoji set
 assets/emoji/*.svg      76 Twemoji SVGs (CC-BY 4.0) + ATTRIBUTION.md
 scripts/fetch-emoji.mjs regenerates the set (pinned version) and the manifest

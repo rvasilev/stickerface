@@ -7,7 +7,7 @@
 // size = normalized * natural * scale. Everything here is in canvas px.
 //
 // rAF coalescing: requestDraw() schedules at most one frame; a burst of
-// pointermove events repaints once. Call cancelDraw() if the stage unmounts.
+// pointermove events repaints once.
 
 import { stickerRect, px } from './geometry.js';
 import { EMOJI } from './emoji.js';
@@ -27,12 +27,6 @@ export function requestDraw(drawFn) {
   });
 }
 
-export function cancelDraw() {
-  if (rafId) cancelAnimationFrame(rafId);
-  rafId = 0;
-  scheduled = null;
-}
-
 /**
  * Raster fallback: draw an image that already exposes width/height onto a
  * square canvas and take the bitmap from the canvas. Chromium refuses to
@@ -45,7 +39,7 @@ export function cancelDraw() {
  * @param {number} size raster edge px
  * @returns {Promise<ImageBitmap|null>}
  */
-export async function bitmapFromImage(img, size) {
+async function bitmapFromImage(img, size) {
   if (!img || !(img.naturalWidth > 0) || !(img.naturalHeight > 0)) return null;
   try {
     const canvas = document.createElement('canvas');
@@ -69,7 +63,7 @@ export async function bitmapFromImage(img, size) {
  * @param {number} [size] explicit width/height px (default 512)
  * @returns {Promise<HTMLImageElement>} decoded image
  */
-export async function loadImgWithSize(src, size = 512) {
+async function loadImgWithSize(src, size = 512) {
   const img = new Image();
   img.width = size;
   img.height = size;
