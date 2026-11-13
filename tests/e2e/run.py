@@ -184,6 +184,47 @@ async def main(probe_path, url_match="8123"):
                             "awaitPromise": True, "returnByValue": True, "timeout": 20000,
                         })
                         continue
+                    if kind in ("click", "move"):
+                        # Real mouse input: a double click MUST come through the
+                        # browser (clickCount 1 then 2) — a synthetic `dblclick`
+                        # event proves nothing about the handler being wired.
+                        x, y = pts[0]
+                        if kind == "move":
+                            await send("Input.dispatchMouseEvent", {
+                                "type": "mouseMoved", "x": x, "y": y, "button": "none",
+                            })
+                        else:
+                            count = int(step.get("count", 1))
+                            await send("Input.dispatchMouseEvent", {
+                                "type": "mouseMoved", "x": x, "y": y, "button": "none",
+                            })
+                            await send("Input.dispatchMouseEvent", {
+                                "type": "mousePressed", "x": x, "y": y, "button": "left",
+                                "buttons": 1, "clickCount": count,
+                            })
+                            await send("Input.dispatchMouseEvent", {
+                                "type": "mouseReleased", "x": x, "y": y, "button": "left",
+                                "buttons": 0, "clickCount": count,
+                            })
+                        await asyncio.sleep(float(step.get("ms", 60)) / 1000)
+                        continue
+                    if kind == "key":
+                        # modifiers: alt=1 ctrl=2 meta=4 shift=8
+                        await send("Input.dispatchKeyEvent", {
+                            "type": "keyDown", "modifiers": int(step.get("modifiers", 0)),
+                            "key": step.get("key", ""), "code": step.get("code", ""),
+                            "windowsVirtualKeyCode": int(step.get("vk", 0)),
+                            "nativeVirtualKeyCode": int(step.get("vk", 0)),
+                            "text": step.get("text", ""),
+                        })
+                        await send("Input.dispatchKeyEvent", {
+                            "type": "keyUp", "modifiers": int(step.get("modifiers", 0)),
+                            "key": step.get("key", ""), "code": step.get("code", ""),
+                            "windowsVirtualKeyCode": int(step.get("vk", 0)),
+                            "nativeVirtualKeyCode": int(step.get("vk", 0)),
+                        })
+                        await asyncio.sleep(float(step.get("ms", 80)) / 1000)
+                        continue
                     touch_points = [
                         {"x": p[0], "y": p[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": i}
                         for i, p in enumerate(pts)

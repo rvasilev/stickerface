@@ -35,7 +35,11 @@ v1 manual placement (images only — video is not supported):
   next image, warns if the aspect ratio differs by more than 5%
 - Undo/redo (command pattern, one entry per drag), layer list with
   forward/back ordering, keyboard nudging (1 px / 10 px with `Shift`),
-  `Delete` to remove, `[` / `]` to reorder
+  `Delete` **or a double-click / double-tap on the sticker** to remove,
+  `[` / `]` to reorder
+- On a touch screen: **one finger** works the stickers (tap to place, drag to
+  move, handles to resize/rotate), **two fingers** scroll the photo; a second
+  finger cancels an in-flight sticker drag
 - Drag-and-drop a photo onto the stage; preview is capped at a 1600 px
   long edge so even a 40 MP photo stays interactive
 - Zero network activity after the page loads; zero console errors on a

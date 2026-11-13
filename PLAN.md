@@ -130,8 +130,17 @@ the gesture split is explicit and testable:
 | Gesture on the canvas | Meaning |
 |---|---|
 | **1 finger** | sticker operations: tap on empty canvas to place, drag a sticker to move, drag a handle to resize/rotate |
-| **2 fingers** | scroll/pan the **image**; never adds, moves, resizes or selects a sticker |
+| **2 fingers, centroid inside the selected sticker's frame** | transform **that sticker**: pinch = scale, twist = rotate, centroid drag = move (Instagram-like) — see below |
+| **2 fingers, centroid outside the frame** | scroll/pan the **image**; never adds, moves, resizes or selects a sticker |
 | any finger outside the canvas | normal page scrolling (the panels, not the photo) |
+
+The mode is decided **once, at gesture start, by the centroid of the first two
+pointers** (`centroid ∈ selected sticker's rotated box` → sticker transform, else
+pan), and is not re-evaluated mid-gesture. A second pointer that lands on a
+*non-selected* sticker neither transforms it nor pans: it selects that sticker
+(single tap) and the gesture stays inert, so a stray second finger cannot deform
+something the user did not aim at. Pinch-zoom of the **image** stays backlog;
+sticker pinch-scale/rotate is M6.
 
 Rules:
 
@@ -155,12 +164,75 @@ Rules:
 - The handles are touch targets too: each needs a hit area ≥ 32 CSS px and must not
   throw when driven by a touch (`resizeRect: unknown handle "undefined"` was an
   uncaught exception under touch emulation).
-- Pinch-zoom is **backlog**; pan alone satisfies the request.
+- Pinch-zoom of the image is **backlog**; pan alone satisfies the scroll request.
+
+### Two-finger sticker transform (Instagram-like, M6)
+
+Requested 2026-11-13: *"when 2 fingers are used inside the sticker sizing frame,
+sticker may be zoomed and rotated (Instagram like)"*.
+
+Applies to the **selected** sticker, whatever its kind (emoji, custom, blur,
+mosaic), while both pointers' centroid sits inside its frame:
+
+- **Scale** = `|p1 - p2| / |startP1 - startP2|` applied to the sticker's *start*
+  size (never accumulated per event — accumulating drifts). Uniform in **pixels**,
+  so both `w` and `h` multiply by the same `k`: a square sticker stays square.
+- **Rotate** = `angle(p1 - p2) - angle(startP1 - startP2)` added to the sticker's
+  *start* rotation, about the sticker centre (not the gesture centroid — otherwise
+  the sticker walks away as you twist it). Snap to multiples of 15° within **4°**
+  (hysteresis: keep the snapped value until the finger angle leaves the ±4° band).
+- **Translate** = centroid delta, so a two-finger drag also repositions.
+- **Clamp**: `k` limited so the shorter side never goes below **16 natural px** and
+  never exceeds **4× the image's shorter side**; `k > 0` always (no inversion, no
+  vanishing sticker). `strength`/`radius` of blur/mosaic patches are **not** scaled
+  — the patch grows, the blur amount stays predictable.
+- **One undo entry for the whole gesture** (like a drag): press → release is one
+  command, so `Ctrl+Z` restores size, angle and position together.
+- The DOM overlay must track live during the gesture (same projection as
+  everything else, no second code path).
+
+Gate: `tests/e2e/sticker-transform-probe.js` — two real CDP touch points that
+start inside the placed sticker's frame (aimed at the frame's own screen box, which
+is itself gated by `selection-probe`), measured from canvas pixels:
+`pinchScalesSticker`, `pinchScalesUniformly`, `twistRotatesSticker`,
+`twoFingerOnStickerDoesNotPanImage`, `pinchIsOneUndoStep`,
+`twoFingerOutsideFrameStillPans`, `pinchClampsSize`. Rotation is read from the
+sticker's yellow pixels via second-moment orientation (the pixel bbox cannot see a
+90°-symmetric square's twist).
 
 Gate: `scripts/e2e-mobile.sh` — emulated 390×844 touch device, real CDP touch
 events, verified from canvas pixels (`tests/e2e/mobile-probe.js`): tap places, one
 finger moves the sticker without moving the image, two fingers pan the image
 without moving/resizing/adding a sticker, and a second finger cancels a drag.
+
+### Remove a sticker (double-click / double-tap)
+
+Requested 2026-11-13. Rule:
+
+- **Desktop:** a real browser double-click (`dblclick`, i.e. two clicks within the
+  platform threshold) on a sticker removes it. A single click only selects.
+- **Touch:** a double-tap — two taps within **350 ms**, less than **25 CSS px**
+  apart, with no second finger involved — removes the sticker under the point.
+  The double-tap must be decided by the same gesture router as the one-finger/two-
+  finger split, not by a separate listener that can race it.
+- Removal is **one undoable command** (a single `Ctrl+Z` brings it back), it hits
+  only the **topmost** sticker under the point (hit-test in reverse z), and it
+  clears the selection (frame and handles hidden) if the removed sticker was
+  selected. The layer list loses exactly that row.
+- **Double-clicking empty canvas must leave no sticker behind.** Placement is on
+  `pointerup` (see the touch model), so the first click may place one and the
+  second is a double-click on it — the net effect must be zero stickers *and* an
+  undo stack that is not corrupted (undoing twice returns to the same state).
+  A double-click on empty canvas with no pending placement does nothing.
+- Do not implement this with a CSS `ondblclick` attribute or a bare synthetic
+  `dblclick` test: the handler must respond to the browser's own click sequence.
+
+Gate: `tests/e2e/delete-probe.js` — real CDP mouse input (`clickCount` 1 then 2)
+plus a real `Ctrl+Z`, measured from canvas pixels:
+`singleClickKeepsSticker`, `doubleClickDeletesSticker`,
+`doubleClickDeletesOnlyTheClickedSticker`, `deleteClearsSelection`,
+`undoRestoresDeletedSticker`, `doubleClickDeletesSecondSticker`,
+`doubleClickOnEmptyLeavesNoSticker`, `twoStickersPlaced`.
 
 ### Export
 
@@ -188,7 +260,7 @@ the pixel scale factor → `canvas.toBlob(mime, quality)` → download as
 | Move | drag body; arrows nudge 1 **preview** px (Shift = 10 preview px), converted to natural px |
 | Resize | 8 handles; corners keep ratio, `Shift` frees it |
 | Rotate | handle above top-centre; snap to 15° with `Shift` |
-| Delete | `Delete`/`Backspace` or layer-list ✕ |
+| Delete | `Delete`/`Backspace`, the layer-list ✕, **or double-click / double-tap the sticker** |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z`, toolbar buttons |
 | Bring forward / back | `[` / `]` |
 
@@ -237,6 +309,7 @@ highest-value manual-mode feature: a family photo set is 10 near-identical shots
 | **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 15/15 + `selection-probe` 6/6, exit 0 | **done**, except CI |
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
 | **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `scripts/e2e-mobile.sh` = 9/9, desktop probes still green | **in progress** |
+| **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 7/7, M5 gate still green | **spec'd, not started** |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so
