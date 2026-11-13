@@ -46,7 +46,7 @@
       </div>
 
       <div class="group" role="group" aria-label="Layout">
-        <button type="button" id="btn-apply-next" disabled title="Keep this sticker layout and open the next photo">Apply layout to next photo</button>
+        <button type="button" id="btn-apply-next" disabled title="Keep this sticker layout and open the next photo">Apply to next photo</button>
       </div>
 
       <div class="group">
@@ -57,7 +57,7 @@
         <h2>Keys</h2>
         <ul>
           <li><kbd>click</kbd> drop sticker</li>
-          <li><kbd>arrows</kbd> nudge 1px · <kbd>Shift</kbd> 10px</li>
+          <li><kbd>arrows</kbd> nudge 1 px · <kbd>Shift</kbd> 10 px</li>
           <li><kbd>Delete</kbd> remove selected</li>
           <li><kbd>Ctrl+Z</kbd> undo · <kbd>Ctrl+Shift+Z</kbd> redo</li>
           <li><kbd>[</kbd> / <kbd>]</kbd> bring back / forward</li>
@@ -96,16 +96,19 @@
         <h2 id="pad-heading">Selected sticker</h2>
         <div class="pad">
           <div class="pad-group" role="group" aria-label="Nudge sticker">
-            <button type="button" id="pad-nudge-up" aria-label="Nudge up">↑</button>
+            <span class="pad-label">Nudge</span>
             <button type="button" id="pad-nudge-left" aria-label="Nudge left">←</button>
+            <button type="button" id="pad-nudge-up" aria-label="Nudge up">↑</button>
             <button type="button" id="pad-nudge-down" aria-label="Nudge down">↓</button>
             <button type="button" id="pad-nudge-right" aria-label="Nudge right">→</button>
           </div>
           <div class="pad-group" role="group" aria-label="Nudge step">
+            <span class="pad-label">Step</span>
             <button type="button" id="pad-step-1" aria-pressed="true">1 px</button>
             <button type="button" id="pad-step-10" aria-pressed="false">10 px</button>
           </div>
           <div class="pad-group" role="group" aria-label="Sticker size">
+            <span class="pad-label">Size</span>
             <button type="button" id="pad-size-down" aria-label="Smaller">−</button>
             <span class="mono" id="pad-size-value">—</span>
             <button type="button" id="pad-size-up" aria-label="Bigger">+</button>
@@ -114,22 +117,25 @@
       </section>
 
       <section aria-labelledby="picker-heading">
-        <h2 id="picker-heading">Emoji</h2>
-        <div class="picker" id="emoji-picker" role="listbox" aria-label="Emoji picker"></div>
-        <!-- "Use my own image" is switched off for v1 (user request 2026-11-13), same
-             contract as the blur/mosaic controls: the input stays in the DOM so
-             js/ui.js keeps resolving it, and ui.js must refuse to load a custom
-             sticker while it is hidden. -->
-        <label class="file-btn small" for="custom-input" id="custom-label" hidden>Use my own image…<input type="file" id="custom-input" accept="image/*" hidden></label>
-        <p class="note" id="privacy-note">Your image is decoded in this tab only — never uploaded.</p>
+        <details open>
+          <summary><h2 id="picker-heading">Emoji</h2></summary>
+          <div class="picker" id="emoji-picker" role="listbox" aria-label="Emoji picker"></div>
+          <!-- "Use my own image" is switched off for v1 (user request 2026-11-13), same
+               contract as the blur/mosaic controls: the input stays in the DOM so
+               js/ui.js keeps resolving it, and ui.js must refuse to load a custom
+               sticker while it is hidden. -->
+          <label class="file-btn small" for="custom-input" id="custom-label" hidden>Use my own image…<input type="file" id="custom-input" accept="image/*" hidden></label>
+        </details>
       </section>
 
       <section aria-labelledby="strength-heading" id="tool-settings" hidden>
         <!-- Blur/mosaic settings — hidden with the tools themselves (v1). -->
-        <h2 id="strength-heading">Strength <span id="strength-value" class="mono">18</span></h2>
-        <input type="range" id="strength" min="2" max="80" step="1" value="18" aria-label="Blur sigma or mosaic block size (px at full scale)">
-        <h2>Corner radius <span id="radius-value" class="mono">0.50</span></h2>
-        <input type="range" id="radius" min="0" max="0.5" step="0.01" value="0.5" aria-label="Corner rounding">
+        <details open>
+          <summary><h2 id="strength-heading">Strength <span id="strength-value" class="mono">18</span></h2></summary>
+          <input type="range" id="strength" min="2" max="80" step="1" value="18" aria-label="Blur sigma or mosaic block size (px at full scale)">
+          <h2>Corner radius <span id="radius-value" class="mono">0.50</span></h2>
+          <input type="range" id="radius" min="0" max="0.5" step="0.01" value="0.5" aria-label="Corner rounding">
+        </details>
       </section>
 
       <section aria-labelledby="layers-heading">
@@ -152,6 +158,9 @@
         </ul>
         <p>Export re-encodes the photo through a canvas, so EXIF and GPS metadata are removed. Video is not supported.</p>
       </section>
+
+      <!-- App-level, so it stays visible whether or not the sections are open. -->
+      <p class="panel-note" id="privacy-note">Your image is decoded in this tab only — never uploaded.</p>
     </aside>
   </div>
 

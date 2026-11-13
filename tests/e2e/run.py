@@ -217,6 +217,21 @@ async def main(probe_path, url_match="8123"):
                         # `hold` keeps the button DOWN for holdMs before releasing,
                         # which is the only way to observe interval-driven repeat:
                         # a click releases before any repeat can fire.
+                        # `fns` resolves the point from the PAGE at dispatch time —
+                        # a disclosure that closes moves its OWN summary (the panel's
+                        # scroll clamps to the shorter content), so a point measured
+                        # before the first click lands on whatever slid into that spot
+                        # for the second one.
+                        if step.get("fns"):
+                            rr = await send("Runtime.evaluate", {
+                                "expression": step["fns"][0], "awaitPromise": True,
+                                "returnByValue": True, "timeout": 20000,
+                            })
+                            v = rr["result"]["result"].get("value")
+                            if not isinstance(v, list) or len(v) < 2:
+                                print(f"{kind}: fns returned {v!r}")
+                                continue
+                            pts = [(float(v[0]), float(v[1]))]
                         x, y = pts[0]
                         if kind == "move":
                             await send("Input.dispatchMouseEvent", {

@@ -43,6 +43,11 @@ v1 manual placement (images only — video is not supported):
   is the sticker on top — inside a collapsible section, and each row's `⠿`
   grip drags the sticker up or down the stack (the grip is decorative;
   ⤴/⤵ and `[`/`]` stay the accessible reorder path)
+- **Panel sections collapse** (`<details>`, no JS): Emoji, Strength and Layers,
+  with a capped, internally-scrolling emoji grid so the list and the sticker pad
+  stay reachable without scrolling the panel
+- Controls are touch-sized (≥32 px), every control type has a visible
+  `:focus-visible` ring, and numbers use one format throughout (`1 px`, `10 px`)
 - On a touch screen: **one finger** works the stickers (tap to place, drag to
   move, handles to resize/rotate), **two fingers** scroll the photo; a second
   finger cancels an in-flight sticker drag
@@ -70,6 +75,15 @@ control comes back by removing one `hidden` attribute in `index.html`:
 | "Use my own image" custom sticker | `#custom-label` / `#custom-input` |
 
 Two consequences that are contract, not polish:
+
+- **Until 2026-11-14 these attributes did not actually hide anything.** Author
+  rules that set `display` (`.toolbar button, .file-btn`, `.panel section`, and a
+  second `.file-btn` further down the sheet) outrank the UA's
+  `[hidden] { display: none }`, so the v1-off controls rendered anyway — the About
+  panel alone was 690 px of always-present markup, and the panel overflowed its
+  height by ~1030 px. Each culprit now carries `:not([hidden])`, and
+  `polish-probe.js` fails if any `[hidden]` element still renders, so this cannot
+  come back unnoticed.
 
 - **Attribution must stay reachable.** The About panel was the only place the
   CC-BY 4.0 Twemoji credit appeared in the UI, so the same credit moved into a

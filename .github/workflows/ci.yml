@@ -123,3 +123,16 @@ jobs:
           E2E_MOBILE: "1"
           E2E_PROBE: tests/e2e/layers-probe.js
         run: bash scripts/e2e.sh
+
+      - name: Gate — UI/UX polish, desktop (hidden, collapse, fit, touch targets, one format)
+        env:
+          E2E_PROBE: tests/e2e/polish-probe.js
+        run: bash scripts/e2e.sh
+
+      - name: Gate — UI/UX polish, phone (stage share, touch targets, no sideways scroll)
+        # Mode-aware: this probe reports a different criteria set per viewport,
+        # so both steps are needed for full coverage.
+        env:
+          E2E_MOBILE: "1"
+          E2E_PROBE: tests/e2e/polish-probe.js
+        run: bash scripts/e2e.sh

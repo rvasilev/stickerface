@@ -53,7 +53,12 @@ h2 { font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color
   gap: 1rem;
 }
 .toolbar .group { display: flex; flex-direction: column; gap: 0.35rem; }
-.toolbar button, .file-btn {
+/* `:not([hidden])` is deliberate: a bare `.file-btn` rule sets `display`, and an
+   author rule that sets `display` outranks the UA's `[hidden] { display: none }`
+   — so the v1-off "Use my own image…" label rendered anyway. Keeping the guard
+   on the selector fixes it without an `!important`, and any element that gets
+   `hidden` later inherits the same protection. */
+.toolbar button:not([hidden]), .file-btn:not([hidden]) {
   appearance: none;
   background: var(--surface-2);
   color: var(--text);
@@ -109,7 +114,7 @@ kbd {
   text-align: center;
   color: var(--text-dim);
 }
-.stage-empty .file-btn { margin: 0.5rem auto; justify-content: center; display: inline-flex; }
+.stage-empty .file-btn:not([hidden]) { margin: 0.5rem auto; justify-content: center; display: inline-flex; }
 /* The hint overlays the photo whenever the photo fills the stage height (any
    portrait shot), and the stage paints nothing behind it — so the text sat
    directly on the image. --text-dim on a light photo measured 2.6:1: invisible.
@@ -231,12 +236,59 @@ kbd {
   gap: 1.1rem;
   overflow: auto;
 }
-.panel section { display: flex; flex-direction: column; gap: 0.5rem; }
+/* Same guard, same reason (see `.file-btn` above): `.panel section` sets
+   `display: flex`, which beat `[hidden]` on the About panel and the strength
+   section — 690px and 97px of markup that rendered while switched off. */
+.panel section:not([hidden]) { display: flex; flex-direction: column; gap: 0.5rem; }
 
+/* The panel must not be a wall of always-open sections. */
+.panel details > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 32px;          /* a tappable control, not a line of text */
+  margin: 0 -0.25rem;        /* let the hit area reach the section's edges */
+  padding: 0 0.25rem;
+  border-radius: 6px;
+}
+.panel details > summary::after {
+  content: '▾';
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  transition: transform 0.15s ease;
+}
+.panel details:not([open]) > summary::after { transform: rotate(-90deg); }
+.panel details > summary:hover { background: var(--surface-2); }
+
+/* The emoji grid is the tallest thing in the panel by far (76 tiles). Capping
+   it in place keeps the picker visible and the rest of the panel reachable
+   without the panel itself scrolling. */
 .picker {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+/* One small label per pad group, so the clusters read as what they are. */
+.pad-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  flex-basis: 100%;
+}
+
+/* App-level note (privacy), outside any collapsible section. */
+.panel-note {
+  margin: 0;
+  padding: 0.5rem 0.25rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text-dim);
 }
 .picker button {
   appearance: none;
@@ -344,7 +396,7 @@ input[type='file'] {
   opacity: 0;
   overflow: hidden;
 }
-.file-btn { position: relative; display: inline-block; }
+.file-btn:not([hidden]) { position: relative; display: inline-block; }
 .file-btn.small { font-size: 0.85rem; padding: 0.35rem 0.5rem; }
 
 a { color: var(--accent); }

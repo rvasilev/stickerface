@@ -100,6 +100,16 @@ order-agnostic. The list lives inside a `<details open>`/`<summary>` — collaps
 is the platform's job, no JS — and the rows are hidden by the closed details,
 never destroyed, so selection and state survive a collapse.
 
+Every panel section (Emoji, Strength, Layers) is the same `<details>`/`<summary>`
+shape: one platform pattern, no bespoke disclosure JS, no `aria-expanded` to keep
+in sync. The emoji grid is the tallest thing in the panel (76 tiles), so it is
+capped and scrolls in place — that, plus real `[hidden]` support, is what keeps
+the list and the pad reachable without scrolling the panel. **Author rules that
+set `display` beat the UA's `[hidden] { display: none }`**: the three selectors
+that do so in this sheet (`:56`, `:117`, `:399` for `.file-btn`, `.toolbar button`
+and `.panel section`) carry `:not([hidden])` rather than an `!important`, and any
+new rule that sets `display` on a hideable element must do the same.
+
 Each row's first child is a **grip** (`<span class="grip" aria-hidden="true">⠿</span>`):
 decorative, not a button — the accessible reorder path stays the ⤴/⤵ buttons and
 `[`/`]`. `touch-action: none` is on the grip only, so a grip drag cannot scroll

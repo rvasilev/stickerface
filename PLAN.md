@@ -387,6 +387,23 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — UI/UX polish, gate-first. `polish-probe.js` was written RED
+  (desktop 3/9, phone 3/4) against measured defects, then the app was fixed until
+  it was green (desktop 9/9, phone 4/4) with no other gate moving. What it caught:
+  six of nine `[hidden]` elements rendered because author `display` rules beat the
+  UA's `[hidden]` rule; the panel overflowed by ~1030 px (v1-off About panel,
+  690 px, plus a 97 px settings section); the full 76-tile emoji grid made the
+  panel 850 px of wall; two pad-group controls were under 32 px; the nudge cluster
+  read ↑ ← ↓ →; and `1px` in the KEYS legend fought `1 px` in the pad. Fixed with
+  `:not([hidden])` on the three selectors that set `display`, `<details>` sections
+  for Emoji/Strength/Layers (platform feature, zero JS), a capped in-place
+  scrolling grid, `min-height: 32px` on the summaries, a labelled pad, and one
+  number format. Two plan items were DROPPED because the gate measured them as
+  already-correct: the heading treatment was uniform, and the phone stage already
+  took 50% of the viewport (422/844), so no change was made and the measurement
+  stayed as the regression guard. `docs/VERIFICATION.md` records the four new
+  traps, including that a closed `<details>` does not zero its child's rect.
+
 - **2026-11-14** — the Layers list became a real sticker selector. Rows now read
   **topmost-first** (the store still keeps ascending-z array order; only
   `_syncLayerList` walks it backwards, which is also what made the ⤴ glyph stop

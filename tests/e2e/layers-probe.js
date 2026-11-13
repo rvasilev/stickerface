@@ -193,16 +193,50 @@
 
     // The grip TRAVELS as rows move (a reorder rebuilds the list), and the panel
     // may scroll, so the drag endpoints are resolved from the page at dispatch
-    // time rather than precomputed.
-    window.__sfGripPoint = () => {
-      const b = box(gripEl(1));
-      return b ? [b.cx, b.cy] : null;
+    // time rather than precomputed. Centre the LIST first — a drag needs BOTH
+    // endpoints on-screen at once — and refuse a point outside the viewport: an
+    // off-screen dispatch hits nothing and the gesture scrolls the panel instead.
+    const onList = (fn) => { list.scrollIntoView({ block: 'center' }); return fn(); };
+    const evidence = (cls, p, el) => {
+      const hit = document.elementFromPoint(p[0], p[1]);
+      (window.__sfPts = window.__sfPts || []).push({
+        cls, p: [Math.round(p[0]), Math.round(p[1])],
+        hit: hit ? `${hit.tagName}.${hit.className || ''}`.slice(0, 40) : null,
+        scroll: panel.scrollTop, vh: window.innerHeight,
+      });
+      return p;
     };
-    window.__sfDropPoint = () => {
+    const onScreen = (b) => !!b && b.cy >= 0 && b.cy <= window.innerHeight;
+    window.__sfGripPoint = () => onList(() => {
+      const el = gripEl(1);
+      const b = box(el);
+      return onScreen(b) ? evidence(el.className, [b.cx, b.cy], el) : null;
+    });
+    window.__sfDropPoint = () => onList(() => {
+      const row = rowsEls()[rowsEls().length - 1];
+      const b = box(row);
       const g = box(gripEl(1));
-      const rowsNow = rowsEls();
-      const last = box(rowsNow[rowsNow.length - 1]);
-      return g && last ? [g.cx, last.cy] : null;
+      if (!onScreen(b) || !g) return null;
+      // The pointer must stay over the GRIP for the whole gesture: the grip owns
+      // the pointermove handler and there is NO pointer capture, so a path that
+      // drifts sideways off it stops delivering moves and the drop never commits.
+      // Measured: returning the row's centre X instead of the grip's X killed the
+      // mouse reorder outright (rows unchanged, no undo entry) while the touch
+      // path — which holds x fixed — still worked. Keep x on the grip.
+      return evidence(row.className, [g.cx, b.cy], row);
+    });
+
+    // The disclosure's position moves when it closes: the panel's scroll clamps to
+    // the shorter content, so a precomputed point for the SECOND click lands on
+    // whatever slid up into that spot (measured: the second click missed, the
+    // section stayed collapsed, and the rows' grips were then unmeasurable — every
+    // drag criterion downstream failed). Re-centre and re-measure per click.
+    window.__sfDiscPoint = () => {
+      const el = openBtn();
+      if (!el) return null;
+      el.scrollIntoView({ block: 'center' });
+      const b = box(el);
+      return b ? [b.cx, b.cy] : null;
     };
 
     // --- the gesture sequence ----------------------------------------------
@@ -222,9 +256,9 @@
     ];
     if (disc) {
       // 2) collapse and restore, checking the rows survive either way
-      seq.push({ t: 'click', pts: [[disc.cx, disc.cy]], ms: 350 });
+      seq.push({ t: 'click', fns: ['window.__sfDiscPoint()'], ms: 350 });
       seq.push({ t: 'read', name: 'afterCollapse' });
-      seq.push({ t: 'click', pts: [[disc.cx, disc.cy]], ms: 350 });
+      seq.push({ t: 'click', fns: ['window.__sfDiscPoint()'], ms: 350 });
       seq.push({ t: 'read', name: 'afterExpand' });
     }
     seq.push(
@@ -329,6 +363,8 @@
       out.dragWorksWithTouch = !!(refsDistinct && tb && t1 && tb.pixel === 'white' && t1.pixel === 'black' && changed(tb, t1));
       out.steps.push(['touch_drag', { before: tb && tb.pixel, after: t1 && t1.pixel,
         rowsBefore: labelsOf('beforeTouchDrag'), rowsAfter: labelsOf('afterTouchDrag') }]);
+      out.points = window.__sfPts || [];
+      out.steps.push(['points', window.__sfPts || []]);
       return JSON.stringify(out);
     };
 

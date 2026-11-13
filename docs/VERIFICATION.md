@@ -45,6 +45,7 @@ probe must never read as success).
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 | `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
+| `polish-probe.js` — the panel is not a wall: `hidden` actually hides, sections collapse by real click, the emoji grid is capped, every control is ≥32px, every control type has a `:focus-visible` rule, one heading treatment, one number format, the nudge cluster reads ← ↑ ↓ → | 9 desktop / 4 phone | green (2026-11-14) — the only probe with a **mode-aware criteria set**: a desktop claim like "the panel fits without scrolling" is simply false on a phone, where the panel is meant to scroll, so each run reports only what holds for its viewport (CI runs both) |
 
 `layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js`,
 `diag-mobile-metrics-probe.js`, `diag-zoom-internals-probe.js` and
@@ -159,6 +160,43 @@ rather than letting "no change" read as success.
   weakening a gate; keep every guard and re-run it. (`diag-layers-paint-probe.js`
   is the isolation tool for this class: it calls `moveTo` with no gesture at all and
   reports whether the canvas pixel follows the array order.)
+- **A guard on the selector, not an `!important`.** The panel's phantom UI was
+  `display` set by an author class rule beating the UA's `[hidden] { display: none }`
+  — `.toolbar button, .file-btn`, `.panel section`, and (found only by the gate, after
+  two were already fixed) a second `.file-btn { display: inline-block }` further down
+  the file. Each now carries `:not([hidden])`. The gate is what found the third one:
+  the criterion counts every `[hidden]` element that still renders, so "I fixed the
+  rules I knew about" is not a passing state.
+- **A gate's own helper must preserve the gesture's invariants.** Moving the
+  layers drag's endpoints from precomputed boxes to live resolvers (necessary: the
+  panel now scrolls, so a stale point misses) broke the mouse reorder outright —
+  I returned the *row's* centre X for the drop point where the original used the
+  *grip's* X. The grip owns `pointermove` and there is no pointer capture, so the
+  interpolated path drifting sideways off a 24 px wide grip stopped delivering
+  moves: rows unchanged, no undo entry, and the touch path (which holds x fixed)
+  still worked. It looked exactly like an app regression and was not — reverting
+  the app files to HEAD reproduced it identically. **Before blaming the app,
+  revert the app files and re-run.** Kept as permanent evidence: the resolver now
+  records what `elementFromPoint` returns at each endpoint, so "the drag did
+  nothing" is attributable in one run instead of five.
+- **A closed `<details>` does not zero its child's rect.** Chromium hides the content
+  with `::details-content { content-visibility: hidden }`, so `#layer-list` kept a
+  142px bounding rect and read as "visible" while the section was collapsed. Measure
+  the `<details>` element's own height (159 → 17) or its `open` property; both child
+  rects and `innerText` are useless signals. `checkVisibility()` does not cover it
+  either — the hiding element is a pseudo-element, not a DOM ancestor.
+- **Count a document once.** The unit-format criterion first concatenated `innerText`
+  with the tag-stripped markup and so counted every string twice (4/4 instead of 2/2)
+  — a comparison that still "worked", which is exactly how such a bug survives. Use
+  one source; the stripped markup is the better one because it includes switched-off
+  sections.
+- **A gate's preconditions are part of the gate.** `polish-probe.js` asserts a
+  different set per viewport and reports only that set, because a criterion that can
+  never pass in the other viewport is worse than no criterion — it trains people to
+  ignore a red run. Two of the plan's claims did not survive contact: the phone stage
+  already measured 50% of the viewport (so the planned change was dropped, with the
+  measurement kept as the regression guard), and the heading treatment was already
+  uniform.
 - **A criterion can pass through an event it never meant to test.** In
   `reorderReachesLayerList`, clicking a row's ⤴ button also bubbles to the row and
   fires `select`, and `select` rebuilds the layer list on its own — so changing the
