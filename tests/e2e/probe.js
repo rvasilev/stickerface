@@ -87,6 +87,32 @@
     await place(920, 620);
     r.threeStickers = document.getElementById('layer-list').children.length === 3;
     r.activeToolStaysEmoji = document.getElementById('tool-emoji').getAttribute('aria-pressed') === 'true';
+
+    // Hiding is not disabling: a hidden control still fires its handler when
+    // clicked/patched programmatically. Assert the app refuses.
+    const layersBeforeHiddenClicks = document.getElementById('layer-list').children.length;
+    document.getElementById('tool-blur').click();
+    document.getElementById('tool-mosaic').click();
+    await place(760, 150);
+    r.toolCannotBeActivatedWhileHidden =
+      document.getElementById('tool-emoji').getAttribute('aria-pressed') === 'true' &&
+      document.getElementById('layer-list').children.length === layersBeforeHiddenClicks + 1;
+    const kindsAfterHiddenClicks = [...document.querySelectorAll('#layer-list .layer-row .label')]
+      .map((el) => el.textContent.trim().toLowerCase());
+    r.hiddenToolPlacedEmojiNotPatch = !kindsAfterHiddenClicks.some((t) => t === 'blur' || t === 'mosaic');
+    log('kindsAfterHiddenClicks', kindsAfterHiddenClicks);
+
+    // The hidden custom-image input must not add a sticker either.
+    const custom = document.getElementById('custom-input');
+    const beforeCustom = document.getElementById('layer-list').children.length;
+    const dtCustom = new DataTransfer();
+    dtCustom.items.add(new File([await blob.arrayBuffer()], 'custom.png', { type: 'image/png' }));
+    custom.files = dtCustom.files;
+    custom.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(300);
+    r.customStickerCannotBeLoadedWhileHidden =
+      document.getElementById('layer-list').children.length === beforeCustom;
+    log('layersAfterHiddenCustomChange', document.getElementById('layer-list').children.length);
     log('layers', document.getElementById('layer-list').children.length);
 
     // --- 5. keyboard nudge + undo --------------------------------------------

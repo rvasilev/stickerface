@@ -371,9 +371,9 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M0** | repo, README, LICENSE, index.html canvas, image upload, draggable emoji sticker | upload → drag → export PNG | **done** |
 | **M1** | handles + rotate, undo, layer list, blur + mosaic kinds, full-res export, keyboard | `npm test` + browser probe green | **done** (after the decode fix) |
 | **M2** | emoji picker (curated Twemoji set), custom image sticker, "same layout next photo" | probe + manual batch of 3 photos | **done**; batch flow needs a manual pass |
-| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 23/23 + the other green probes, exit 0; CI workflow on push | **done** (CI added 2026-11-13) |
+| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 26/26 + the other green probes, exit 0; CI workflow on push | **done** (CI added 2026-11-13) |
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
-| **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `scripts/e2e-mobile.sh` = 9/9, desktop probes still green | **done** (2026-11-13; the probe's 10th criterion, double-tap delete, belongs to the next item) |
+| **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `npm run e2e:mobile` = 12/12 (incl. double-tap delete + zero leaked contacts), desktop probes green | **done** (2026-11-13) |
 | **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 8/8, M5 gate still green | **spec'd, not started** |
 | **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **spec'd, not started** (baseline 3/9) |
 
@@ -444,6 +444,19 @@ It is a real browser, a real file upload and real pixel assertions — see
   - Outstanding by design: the touch gate (pointer leak + double-tap) is red and
     `tap-after-pan` with it; M6/M7 probes are red until those features exist. CI
     runs only the green set and says so.
+- **2026-11-13 (later)** — the touch round landed and was verified: contact leak
+  fixed (`canvas.dataset.pointers` back to 0 after every gesture), touch double-tap
+  deletes as one undo step, `tap-to-place` survives a pan and a cancelled drag.
+  Touch gate **12/12**, tap-after-pan **8/8**, main probe **26/26** (two new
+  criteria: a hidden tool button cannot be activated, and a programmatic change on
+  the hidden custom-image input loads nothing), vitest **74/74**. CI extended with
+  the touch and tap-after-pan gates.
+  Two of the failures that looked like app bugs were **my probes'**: taps spaced
+  under 350 ms are a double-tap by design, and after a pan a hardcoded tap
+  coordinate is no longer empty (a sticker drifts under it, the app correctly
+  selects instead of placing). Both traps are now written into
+  `docs/VERIFICATION.md`, and the harness gained a `tapPagePoint` step so a probe
+  can ask the page for an empty spot at dispatch time.
 
 ## Acceptance criteria for M1 (what "done" means)
 

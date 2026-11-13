@@ -112,6 +112,10 @@
       //    (the first sticker has drifted with the image by now).
       { t: 'touchStart', pts: [DOT], ms: 70 },
       { t: 'touchEnd', pts: [], ms: 260 },
+      // Close the double-tap window before the pair below: taps closer together
+      // than 350ms ARE a double-tap (correctly), so a placement tap followed
+      // immediately by a pair would pair up, delete, and place again — net zero.
+      { t: 'settle', ms: 450 },
       { t: 'read', name: 'afterTapForDelete' },
       { t: 'touchStart', pts: [DOT], ms: 70 },
       { t: 'touchEnd', pts: [], ms: 70 },

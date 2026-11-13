@@ -240,6 +240,24 @@ async def main(probe_path, url_match="8123"):
                         })
                         await asyncio.sleep(float(step.get("ms", 80)) / 1000)
                         continue
+                    if kind == "tapPagePoint":
+                        # A tap whose point is computed by the PAGE at dispatch
+                        # time (e.g. an "emptiest spot" that depends on the current
+                        # pan). fn must return [x, y] in viewport CSS px.
+                        ptp = await send("Runtime.evaluate", {
+                            "expression": step.get("fn", "null"),
+                            "awaitPromise": True, "returnByValue": True, "timeout": 20000,
+                        })
+                        val = ptp["result"]["result"].get("value")
+                        if isinstance(val, list) and len(val) >= 2:
+                            p = [{"x": val[0], "y": val[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": 900}]
+                            await send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": p})
+                            await asyncio.sleep(0.07)
+                            await send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+                        else:
+                            print(f"tapPagePoint: page returned {val!r}")
+                        await asyncio.sleep(float(step.get("ms", 200)) / 1000)
+                        continue
                     touch_points = [
                         {"x": p[0], "y": p[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": pid}
                         for pid, p in zip(ids_for(len(pts)), pts)

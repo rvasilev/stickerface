@@ -4,11 +4,13 @@ name: CI
 # now nothing enforced that on push (PLAN's M3 said "done, except CI"), so a
 # broken build could sit on main unnoticed.
 #
-# Scope note: only gates that are GREEN at this commit run here. The touch gate
-# (scripts/e2e-mobile.sh), tap-after-pan, sticker-transform (M6) and zoom (M7)
-# probes are knowingly red while those features are being implemented; a CI that
-# fails for known reasons trains people to ignore it. Add each one here in the
-# same commit that makes it green.
+# Scope note: only gates that are GREEN at this commit run here. The
+# sticker-transform (M6) and zoom (M7) probes are knowingly red while those
+# features are being implemented; a CI that fails for known reasons trains people
+# to ignore it. Add each one here in the same commit that makes it green.
+#
+# The touch gate also needs the fixture at the mobile viewport, so it runs through
+# its own wrapper; the probes below reuse scripts/e2e.sh via E2E_PROBE.
 
 on:
   push:
@@ -67,4 +69,16 @@ jobs:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
           E2E_MOBILE: "1"
           E2E_PROBE: tests/e2e/handles-probe.js
+        run: bash scripts/e2e.sh
+
+      - name: Gate — touch model (1 finger = stickers, 2 fingers = pan)
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+        run: npm run e2e:mobile
+
+      - name: Gate — tap-to-place survives a pan and a cancelled drag
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          E2E_MOBILE: "1"
+          E2E_PROBE: tests/e2e/tap-after-pan-probe.js
         run: bash scripts/e2e.sh

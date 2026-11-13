@@ -36,14 +36,15 @@ probe must never read as success).
 | `selection-probe.js` — the frame wraps the drawn sticker, before and after a real handle drag | 8 | green |
 | `delete-probe.js` — double-click removes the topmost sticker, one undo step, empty-canvas no-op | 8 | green |
 | `handles-probe.js` — markers are small, the hit area stays finger-sized, alignment kept | 5 | green (touch) |
-| `mobile-probe.js` — one finger = sticker ops, two fingers = pan, second finger cancels a drag | 12 | **9 green** (double-tap delete + pointer-leak criteria in flight) |
-| `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag | 6 | **5 green** |
+| `mobile-probe.js` — one finger = sticker ops, two fingers = pan, second finger cancels a drag, double-tap deletes | 12 | green |
+| `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag, and the contact count returns to zero | 8 | green |
 | `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **4 green** — not implemented |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | **3 green** — not implemented |
 
-`layout-probe.js` and `touch-diag-probe.js` are **diagnostics**, not gates: they print
-numbers for triage (`layout-probe` in particular reports the preview box vs the
-backing store's aspect ratio, stage vs viewport, thumbnails).
+`layout-probe.js`, `touch-diag-probe.js` and `diag-doubletap-probe.js` are
+**diagnostics**, not gates: they print app internals (view, tab bookkeeping,
+sticker positions) for triage. `layout-probe` in particular reports the preview box
+vs the backing store's aspect ratio, stage vs viewport, thumbnails.
 
 ### Running any probe through the one harness
 
@@ -72,6 +73,7 @@ handles that way reported PASS while nothing moved. Probes therefore return an i
 | `{t:'click', pts:[[x,y]], count:2}` | `Input.dispatchMouseEvent` | single/double click (`clickCount` 1 then 2) |
 | `{t:'key', key:'z', modifiers:2}` | `Input.dispatchKeyEvent` | Ctrl+Z, Ctrl+Shift+Z |
 | `{t:'read', name:'x'}` | evaluates `window.__sfSnap('x')` | measure **between** gestures |
+| `{t:'tapPagePoint', fn:'window.__sfFreeSpot()'}` | asks the page for a point, then touches it | aiming at a spot that depends on the current pan |
 | `{t:'settle', ms:…}` | sleeps | let a gesture finish |
 
 The probe installs `window.__sfSnap(name)` (writes into `window.__sfSnaps`) and
@@ -90,6 +92,21 @@ Add a top-level `r.yourCriterionName = <boolean>` and a `log(...)` line carrying
 evidence. Two rules: a criterion that cannot fail is not a test, and a criterion that
 passes when nothing happened is worse — guard it (`if the zoom did not happen, FAIL`)
 rather than letting "no change" read as success.
+
+### Two probe-authoring traps that produced false failures here
+
+- **Taps closer together than the double-tap window ARE a double-tap.** Two taps
+  350 ms apart on the same spot delete the sticker — correct behaviour that made a
+  probe sequence of "place, tap, tap" read as "nothing happened" (place, delete,
+  place). Space standalone taps beyond the window (`{t:'settle', ms:400}` in the
+  probe) and keep a genuine pair tight.
+- **After a pan, a hardcoded tap coordinate is no longer empty.** The image moves,
+  so a sticker can drift under a canvas fraction that used to be free; the tap then
+  correctly *selects* instead of placing, and the criterion fails while the app is
+  right. Compute the tap point in the page at dispatch time (`tapPagePoint` step +
+  an "emptiest on-screen spot" search) and assert the clearance you got — a sticker
+  is 216 natural px wide, so require >150 px of clearance or the criterion is
+  measuring the wrong thing.
 
 ## Traps
 
