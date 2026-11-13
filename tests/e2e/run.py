@@ -39,7 +39,10 @@ def page_target(match="8123"):
 
 
 async def main(probe_path, url_match="8123"):
-    probe = "/" + probe_path.lstrip("/")
+    # RELATIVE, not root-absolute: the app is served at the origin root locally
+    # but under /stickerface/ on GitHub Pages, where '/tests/...' would resolve to
+    # the origin root and return a 404 HTML page (evaluated as "Unexpected token <").
+    probe = probe_path.lstrip("/")
     target = page_target(url_match)
     events = []
     async with websockets.connect(target["webSocketDebuggerUrl"], max_size=64 * 1024 * 1024) as ws:

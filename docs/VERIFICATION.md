@@ -81,6 +81,14 @@ Add a `r.yourCriterionName = <boolean>` line and a `log(...)` line with the
 evidence. Top-level boolean keys are the checks; `steps` is the evidence trail.
 Keep it honest: a criterion that cannot fail is not a test.
 
+### Trap: the probe path must be RELATIVE
+
+The app is served at the origin root locally (`/index.html`) but under
+`/stickerface/` on GitHub Pages. A root-absolute fetch (`/tests/e2e/probe.js`)
+resolves to the origin root on Pages, returns a 404 **HTML** page, and the eval
+fails with `SyntaxError: Unexpected token '<'`. Always fetch the probe relative to
+the document (`tests/e2e/probe.js`).
+
 ## Manual checklist (things the probe cannot see)
 
 - `ctx.filter` blur on Safari < 18 (the harness runs Chromium; the fallback path
