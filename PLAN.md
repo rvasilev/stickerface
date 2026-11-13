@@ -306,6 +306,7 @@ the pixel scale factor → `canvas.toBlob(mime, quality)` → download as
 | Delete | `Delete`/`Backspace`, the layer-list ✕, **or double-click / double-tap the sticker** |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z`, toolbar buttons |
 | Bring forward / back | `[` / `]` |
+| Nudge / size (selected) | the panel's **Selected sticker** pad — 4 arrows, a 1 px / 10 px step, size −/+ (inherits the nudge-granularity debt below) |
 
 Open interaction issues (spec debt, not yet fixed):
 
@@ -375,6 +376,7 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `npm run e2e:mobile` = 12/12 (incl. double-tap delete + zero leaked contacts), desktop probes green | **done** (2026-11-13) |
 | **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 8/8, M5 gate still green | **spec'd, not started** |
 | **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **done** (2026-11-14, three delegated rounds) |
+| **M8** | selected-sticker pad: nudge arrows + a 1 px/10 px step + size −/+, so a sticker too small to grab can still be moved and resized | `tests/e2e/pad-probe.js` = 7/7, every M1–M7 gate green | **done** (2026-11-14, delegated; the gate itself corrected once) |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so
@@ -383,6 +385,22 @@ It is a real browser, a real file upload and real pixel assertions — see
 `docs/VERIFICATION.md`. Adding Playwright later is fine; do not delete the probe.
 
 ## Status log
+
+- **2026-11-14** — the selected-sticker pad (M8). The trigger was measured, not
+  guessed: at and below ~32 CSS px the 8 handles' hit areas (12 px marker + a 10 px
+  `::before` inset) cover a sticker's whole interior, so a move drag is impossible —
+  free at 36 px, blocked at 30 (`diag-small-sticker-probe.js`, landed at `a05e346`).
+  The pad's arrows move by coordinates and never need the sticker's pixels, so the
+  fix does not depend on its size. `tests/e2e/pad-probe.js` was committed RED, then
+  implemented by a delegated agent. **The agent refused correctly**: the frozen
+  gate's `shrink` snapshot wrote a flat rect while its reader addressed `.box`,
+  which made `tinyStickerIsMovable` unconditionally false — a criterion that can
+  never pass is as worthless as one that can never fail. Fixed in `257bdfd` with
+  the guard unchanged; a reader that throws is now reported instead of dropped in
+  silence. The agent's second claim (a tolerance 0.05 too tight) was wrong
+  arithmetic and was not acted on — verify a refusing agent's claims, don't just
+  accept them. Proven able to fail: removing the hold's `beginDrag`/`commitDrag`
+  pair takes `undoGrew` from 1 to 6 and the criterion to red.
 
 - **2026-11-13** — v1 built (delegated to a coding agent). Unit gate green at 48/48.
 - **2026-11-13** — browser verification found two real defects the unit tests could

@@ -98,3 +98,8 @@ jobs:
         env:
           E2E_PROBE: tests/e2e/hint-legibility-probe.js
         run: bash scripts/e2e.sh
+
+      - name: Gate — the selected sticker's pad
+        env:
+          E2E_PROBE: tests/e2e/pad-probe.js
+        run: bash scripts/e2e.sh

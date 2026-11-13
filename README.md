@@ -26,6 +26,8 @@ python3 -m http.server 8000      # file:// does NOT work (ES modules)
 v1 manual placement (images only — video is not supported):
 
 - **Emoji stickers** from a curated Twemoji set; click the canvas to drop one
+- **Selected-sticker pad** in the panel — nudge arrows with a 1 px / 10 px step and
+  size −/+ — so a sticker resized too small to grab can still be moved and resized
 - Click to drop, drag to move, 8 resize handles (corners keep aspect,
   `Shift` frees it) and a rotate handle (`Shift` snaps to 15°)
 - Full-resolution export: PNG (default) or JPEG (quality 0.92), always

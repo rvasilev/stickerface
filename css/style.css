@@ -251,6 +251,25 @@ kbd {
 .picker button[aria-selected='true'] { border-color: var(--accent); background: #2a3a52; }
 .picker img { width: 100%; aspect-ratio: 1; display: block; }
 
+/* Selected-sticker pad: coordinates, not pixels, so it works at any size */
+.pad { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.pad-group { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.pad-group button {
+  appearance: none;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0.35rem 0.55rem;
+  font: inherit;
+  cursor: pointer;
+}
+.pad-group button:hover { border-color: var(--accent); }
+.pad-group button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
+#pad-size-value { min-width: 3.5rem; text-align: center; }
+
 .panel input[type='range'] { width: 100%; accent-color: var(--accent); }
 
 .layers, .layer-row { list-style: none; margin: 0; padding: 0; }

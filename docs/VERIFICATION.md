@@ -42,6 +42,7 @@ probe must never read as success).
 | `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **3 green** — not implemented |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
+| `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 
 `layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js`,
 `diag-mobile-metrics-probe.js`, `diag-zoom-internals-probe.js` and
@@ -59,7 +60,7 @@ would hit. Measured 2026-11-14: **free at 36 CSS px, blocked at 30** — at and 
 entire interior, so the centre press lands on `handle:w` and the sticker cannot be
 moved. The transition brackets the predicted threshold (the edge handle's 32 px box
 reaches the centre when the box is ≤ 32 px). This is the measurement behind the
-Move/Resize-mode design; it becomes a gate when that lands.
+selected-sticker pad (M8); `pad-probe.js` is the gate that now covers it.
 
 ```bash
 E2E_MOBILE=1 E2E_PROBE=tests/e2e/diag-mobile-metrics-probe.js npm run e2e   # device numbers

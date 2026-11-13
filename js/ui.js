@@ -27,6 +27,11 @@ import { EMOJI } from './emoji.js';
 
 const PREVIEW_LONG_EDGE = 1600;
 
+const PAD_HOLD_DELAY_MS = 300;   // before a held button repeats
+const PAD_HOLD_REPEAT_MS = 120;
+const PAD_SIZE_DOWN = 0.9;
+const PAD_SIZE_UP = 1.1;
+
 /** Cache of decoded bitmaps, keyed by sticker src. */
 export class CanvasApp {
   /**
@@ -79,6 +84,7 @@ export class CanvasApp {
     this._bindPointer();
     this._bindKeys();
     this._bindToolbar();
+    this._bindPad();
     this._bindInputs();
     this.store.subscribe((event) => this.onStateChange(event));
     this.init();
@@ -128,6 +134,16 @@ export class CanvasApp {
       strengthValue: $('#strength-value'),
       radius: $('#radius'),
       radiusValue: $('#radius-value'),
+      pad: $('#sticker-pad'),
+      padSizeValue: $('#pad-size-value'),
+      padNudgeUp: $('#pad-nudge-up'),
+      padNudgeDown: $('#pad-nudge-down'),
+      padNudgeLeft: $('#pad-nudge-left'),
+      padNudgeRight: $('#pad-nudge-right'),
+      padStep1: $('#pad-step-1'),
+      padStep10: $('#pad-step-10'),
+      padSizeUp: $('#pad-size-up'),
+      padSizeDown: $('#pad-size-down'),
     };
     this.ctx = this.els.canvas.getContext('2d');
     this.toolbarTools = {
@@ -370,6 +386,7 @@ export class CanvasApp {
     const box = this.els.selectBox;
     if (!st || !this.image) {
       box.hidden = true;
+      this.els.pad.hidden = true;
       return;
     }
     // Overlay coords are CSS px inside .canvas-wrap (which shrink-wraps the
@@ -390,6 +407,8 @@ export class CanvasApp {
     const by = rect.y * k + this.view.dy;
 
     box.hidden = false;
+    this.els.pad.hidden = false;
+    this.els.padSizeValue.textContent = `${Math.round(st.w * 100)}%`;
     // The chrome box is the UN-rotated rect (keeps handle buttons simple);
     // for a rotated sticker we rotate the box itself to match the paint.
     box.style.left = `${bx}px`;
@@ -1095,16 +1114,92 @@ export class CanvasApp {
       const step = e.shiftKey ? 10 : 1; // px @ preview scale per PLAN.md
       if (st && this.image && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
-        // Arrows nudge 1 px @preview scale (Shift = 10): convert to natural px.
-        const pxStep = step / this.scale;
-        const dx = e.key === 'ArrowRight' ? pxStep : e.key === 'ArrowLeft' ? -pxStep : 0;
-        const dy = e.key === 'ArrowDown' ? pxStep : e.key === 'ArrowUp' ? -pxStep : 0;
-        this.store.move(st.id, (() => {
-          const out = nudge(st, dx, dy, this.image.naturalWidth, this.image.naturalHeight);
-          return { cx: out.cx, cy: out.cy };
-        })());
+        const dx = e.key === 'ArrowRight' ? step : e.key === 'ArrowLeft' ? -step : 0;
+        const dy = e.key === 'ArrowDown' ? step : e.key === 'ArrowUp' ? -step : 0;
+        this._nudgeSelected(dx, dy);
       }
     });
+  }
+
+  /* ---------- selected-sticker pad ---------- */
+
+  /** Move the selected sticker by preview-px deltas. */
+  _nudgeSelected(dxPx, dyPx) {
+    const st = this._selectedSticker();
+    if (!st || !this.image) return;
+    const k = 1 / this.scale;   // preview px -> natural px, one place
+    const out = nudge(st, dxPx * k, dyPx * k, this.image.naturalWidth, this.image.naturalHeight);
+    this.store.move(st.id, { cx: out.cx, cy: out.cy });
+  }
+
+  /** Scale the selected sticker about its centre. */
+  _scaleSelected(k) {
+    const st = this._selectedSticker();
+    if (!st || !this.image) return;
+    const minW = 8 / this.scale / this.image.naturalWidth;
+    const w = Math.max(minW, st.w * k);
+    const f = w / st.w;
+    this.store.move(st.id, { w, h: st.h * f });
+  }
+
+  /**
+   * A press-and-hold button. beginDrag/commitDrag wrap the WHOLE hold, so
+   * a held button is exactly ONE undo entry.
+   */
+  _bindHoldButton(btn, apply) {
+    let delayTimer = null;
+    let repeatTimer = null;
+    let heldId = null;
+    const stop = () => {
+      if (heldId === null) return;
+      heldId = null;
+      clearTimeout(delayTimer);
+      clearInterval(repeatTimer);
+      delayTimer = repeatTimer = null;
+      btn.removeEventListener('pointerup', stop);
+      btn.removeEventListener('pointercancel', stop);
+      this.store.commitDrag();
+    };
+    btn.addEventListener('pointerdown', (ev) => {
+      const st = this._selectedSticker();
+      if (!st) return;
+      ev.preventDefault();
+      heldId = st.id;
+      this.store.beginDrag(st.id);
+      apply();
+      btn.addEventListener('pointerup', stop);
+      btn.addEventListener('pointercancel', stop);
+      delayTimer = setTimeout(() => {
+        repeatTimer = setInterval(() => {
+          // The selection can change mid-hold; never keep editing a
+          // sticker the user has moved on from.
+          if (this._selectedSticker()?.id !== heldId) return stop();
+          apply();
+        }, PAD_HOLD_REPEAT_MS);
+      }, PAD_HOLD_DELAY_MS);
+    });
+  }
+
+  _bindPad() {
+    this.els.pad.hidden = true;
+    this._padStep = 1;
+    const arrows = [
+      ['padNudgeUp', 0, -1], ['padNudgeDown', 0, 1],
+      ['padNudgeLeft', -1, 0], ['padNudgeRight', 1, 0],
+    ];
+    for (const [key, sx, sy] of arrows) {
+      this._bindHoldButton(this.els[key], () => this._nudgeSelected(sx * this._padStep, sy * this._padStep));
+    }
+    this._bindHoldButton(this.els.padSizeDown, () => this._scaleSelected(PAD_SIZE_DOWN));
+    this._bindHoldButton(this.els.padSizeUp, () => this._scaleSelected(PAD_SIZE_UP));
+
+    const setStep = (n) => {
+      this._padStep = n;
+      this.els.padStep1.setAttribute('aria-pressed', String(n === 1));
+      this.els.padStep10.setAttribute('aria-pressed', String(n === 10));
+    };
+    this.els.padStep1.addEventListener('click', () => setStep(1));
+    this.els.padStep10.addEventListener('click', () => setStep(10));
   }
 
   /* ---------- export + batch ---------- */

@@ -9,7 +9,8 @@ index.html              markup only: toolbar, stage, canvas, right panel, About
 css/style.css           all styling; no external fonts
 js/ui.js                entry (index.html loads this): CanvasApp — DOM wiring,
                         pointer state machine, selection chrome (8 resize
-                        handles + rotate handle), layer list
+                        handles + rotate handle), layer list, the
+                        selected-sticker pad
 js/store.js             Store: state + command-pattern undo/redo + subscribe()
 js/geometry.js          PURE maths: px/norm, stickerRect, handlePositions,
                         hitTest, resizeRect, rotateTo, nudge

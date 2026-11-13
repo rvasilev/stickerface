@@ -91,7 +91,28 @@
     </main>
 
     <!-- Right panel -->
-    <aside class="panel" aria-label="Emoji picker and layers">
+    <aside class="panel" aria-label="Sticker controls, emoji picker and layers">
+      <section id="sticker-pad" aria-labelledby="pad-heading" hidden>
+        <h2 id="pad-heading">Selected sticker</h2>
+        <div class="pad">
+          <div class="pad-group" role="group" aria-label="Nudge sticker">
+            <button type="button" id="pad-nudge-up" aria-label="Nudge up">↑</button>
+            <button type="button" id="pad-nudge-left" aria-label="Nudge left">←</button>
+            <button type="button" id="pad-nudge-down" aria-label="Nudge down">↓</button>
+            <button type="button" id="pad-nudge-right" aria-label="Nudge right">→</button>
+          </div>
+          <div class="pad-group" role="group" aria-label="Nudge step">
+            <button type="button" id="pad-step-1" aria-pressed="true">1 px</button>
+            <button type="button" id="pad-step-10" aria-pressed="false">10 px</button>
+          </div>
+          <div class="pad-group" role="group" aria-label="Sticker size">
+            <button type="button" id="pad-size-down" aria-label="Smaller">−</button>
+            <span class="mono" id="pad-size-value">—</span>
+            <button type="button" id="pad-size-up" aria-label="Bigger">+</button>
+          </div>
+        </div>
+      </section>
+
       <section aria-labelledby="picker-heading">
         <h2 id="picker-heading">Emoji</h2>
         <div class="picker" id="emoji-picker" role="listbox" aria-label="Emoji picker"></div>
