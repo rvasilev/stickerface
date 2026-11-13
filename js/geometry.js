@@ -148,11 +148,6 @@ export function hitTest(point, stickers, imgW, imgH) {
  * The opposite edge/corner stays pinned (in the local frame). Returns a NEW
  * normalized {cx, cy, w, h}; the input sticker is not mutated.
  *
- * Signatures (imgW/imgH are required to normalize):
- *   resizeRect(sticker, handle, pointerPx, imgW, imgH, keepAspect)
- *   resizeRect(sticker, handle, pointerPx, { imgW, imgH, keepAspect })
- *   resizeRect(sticker, handle, pointerPx, keepAspect) — sticker carries imgW/imgH
- *
  * keepAspect preserves the current w/h PIXEL ratio: the dragged size is
  * re-derived from that ratio and re-anchored to the pinned edge, so both
  * axes stay proportional instead of one axis snapping.
@@ -161,32 +156,15 @@ export function hitTest(point, stickers, imgW, imgH) {
  * @param {Sticker} sticker
  * @param {string} handle 'nw'|'n'|'ne'|'e'|'se'|'s'|'sw'|'w'
  * @param {Pt} pointerPx pointer position in image px
- * @param {number|boolean|object} [imgW]
- * @param {number} [imgH]
- * @param {boolean} [keepAspect]
+ * @param {{imgW:number, imgH:number, keepAspect?:boolean}} opts image size + keepAspect
  * @returns {{cx:number, cy:number, w:number, h:number}} normalized
  */
-export function resizeRect(sticker, handle, pointerPx, imgW, imgH, keepAspect) {
-  let W;
-  let H;
-  let keep = false;
-  if (imgW !== null && typeof imgW === 'object') {
-    W = imgW.imgW ?? imgW.width;
-    H = imgW.imgH ?? imgW.height;
-    keep = Boolean(imgW.keepAspect);
-  } else if (typeof imgW === 'number' && typeof imgH === 'number') {
-    W = imgW;
-    H = imgH;
-    keep = Boolean(keepAspect);
-  } else if (typeof imgW === 'boolean' || imgW == null) {
-    keep = Boolean(imgW);
-    W = sticker.imgW ?? sticker.width;
-    H = sticker.imgH ?? sticker.height;
-  } else {
-    throw new TypeError('resizeRect: expected (sticker, handle, pointerPx, imgW, imgH, keepAspect)');
-  }
+export function resizeRect(sticker, handle, pointerPx, opts) {
+  const W = opts?.imgW;
+  const H = opts?.imgH;
+  const keep = Boolean(opts?.keepAspect);
   if (!W || !H || !Number.isFinite(W) || !Number.isFinite(H) || W <= 0 || H <= 0) {
-    throw new TypeError('resizeRect: image dimensions (imgW, imgH) are required');
+    throw new TypeError('resizeRect: options { imgW, imgH, keepAspect } are required');
   }
   const key = String(handle).toLowerCase();
   if (!['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].includes(key)) {

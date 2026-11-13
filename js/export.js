@@ -4,8 +4,9 @@
 // that in the UI as a privacy feature).
 //
 // A partial asset failure must never disable the app: exportImage returns a
-// `degraded` count of stickers that had no decoded bitmap; those draw as a
-// shaded block (via render.js paint fallbacks) instead of blocking export.
+// `degraded` count of stickers that had no drawable asset (no bitmap AND no
+// <img> fallback) and so draw as a shaded block. A sticker drawn from the
+// <img> fallback draws the real artwork, so it is not degraded.
 //
 // Browsers cap canvas area (Safari 4096x4096 through iOS 17, 8192x8192 in
 // iOS 18; Chrome far higher). Above the cap a natural-size canvas allocates
@@ -150,18 +151,19 @@ export function cappedExportNote(compositeSize) {
 }
 
 /**
- * Count stickers that will draw degraded (no decoded bitmap, with or
- * without a fallback <img>). Purely informative — never blocks export.
+ * Count stickers with no drawable asset (no bitmap and no fallback <img>),
+ * which paint as a shaded block. A sticker with a fallback <img> draws the
+ * real artwork and is not counted. Purely informative — never blocks export.
  * @param {object} state Store state {stickers}
  * @param {Map<string, ImageBitmap>} bitmaps emoji bitmaps by src
  * @param {Map<string, ImageBitmap>} [customBitmaps] user-image bitmaps by src
  * @param {Map<string, HTMLImageElement>} [fallback] img fallbacks by src
- * @returns {number} count of degraded stickers
+ * @returns {number} count of stickers exported as a shaded block
  */
 export function degradedStickerCount(state, bitmaps, customBitmaps, fallback) {
   const stickers = state?.stickers ?? [];
-  const { withFallback, withPlaceholder } = partitionStickers(stickers, bitmaps, fallback, customBitmaps);
-  return withFallback.length + withPlaceholder.length;
+  const { withPlaceholder } = partitionStickers(stickers, bitmaps, fallback, customBitmaps);
+  return withPlaceholder.length;
 }
 
 /**

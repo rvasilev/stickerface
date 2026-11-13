@@ -190,7 +190,7 @@ describe('resizeRect — corner pinning', () => {
   ];
 
   it.each(cases)('%s pins the opposite corner', (handle, ptr, pinned, moved) => {
-    const out = resizeRect(base(), handle, ptr, 1000, 1000, false);
+    const out = resizeRect(base(), handle, ptr, { imgW: 1000, imgH: 1000, keepAspect: false });
     const rect = stickerRect({ rot: 0, ...out }, 1000, 1000);
     const corners = {
       [pinned.x === rect.x ? 'x0' : 'x1']: pinned.x,
@@ -209,7 +209,7 @@ describe('resizeRect — corner pinning', () => {
   });
 
   it('edge handles move only one axis', () => {
-    const east = resizeRect(base(), 'e', { x: 700, y: 123 }, 1000, 1000, false);
+    const east = resizeRect(base(), 'e', { x: 700, y: 123 }, { imgW: 1000, imgH: 1000, keepAspect: false });
     const rectE = stickerRect({ rot: 0, ...east }, 1000, 1000);
     expect(rectE.x).toBeCloseTo(400, 9); // west edge pinned
     expect(rectE.x + rectE.w).toBeCloseTo(700, 9); // east edge follows
@@ -218,7 +218,7 @@ describe('resizeRect — corner pinning', () => {
   });
 
   it('never collapses below a 2px minimum', () => {
-    const out = resizeRect(base(), 'e', { x: 401, y: 500 }, 1000, 1000, false);
+    const out = resizeRect(base(), 'e', { x: 401, y: 500 }, { imgW: 1000, imgH: 1000, keepAspect: false });
     const rect = stickerRect({ rot: 0, ...out }, 1000, 1000);
     expect(rect.w).toBeGreaterThanOrEqual(2);
   });
@@ -226,7 +226,7 @@ describe('resizeRect — corner pinning', () => {
   it('keepAspect preserves the pixel ratio on a corner drag', () => {
     // Non-square image + non-square sticker so normalized and pixel ratios differ.
     const st = parked({ cx: 0.5, cy: 0.5, w: 0.4, h: 0.2, rot: 0 }); // px: 800x200 -> ratio 4
-    const out = resizeRect(st, 'se', { x: 900, y: 600 }, 2000, 1000, true);
+    const out = resizeRect(st, 'se', { x: 900, y: 600 }, { imgW: 2000, imgH: 1000, keepAspect: true });
     const rect = stickerRect({ rot: 0, ...out }, 2000, 1000);
     expect(rect.w / rect.h).toBeCloseTo(4, 9);
     // Pinned NW corner stays at (600, 400).
@@ -236,16 +236,15 @@ describe('resizeRect — corner pinning', () => {
 
   it('keepAspect on an edge drag derives the other axis and keeps the centre', () => {
     const st = parked({ cx: 0.5, cy: 0.5, w: 0.4, h: 0.2, rot: 0 }); // 800x200, ratio 4
-    const out = resizeRect(st, 'e', { x: 1200, y: 500 }, 2000, 1000, true);
+    const out = resizeRect(st, 'e', { x: 1200, y: 500 }, { imgW: 2000, imgH: 1000, keepAspect: true });
     const rect = stickerRect({ rot: 0, ...out }, 2000, 1000);
     expect(rect.w / rect.h).toBeCloseTo(4, 9);
     expect(rect.y + rect.h / 2).toBeCloseTo(500, 9); // centre y unchanged
   });
 
-  it('supports the options-object signature', () => {
-    const a = resizeRect(base(), 'se', { x: 700, y: 700 }, 1000, 1000, false);
-    const b = resizeRect(base(), 'se', { x: 700, y: 700 }, { imgW: 1000, imgH: 1000, keepAspect: false });
-    expect(a).toEqual(b);
+  it('requires the options object: positional dimensions throw', () => {
+    expect(() => resizeRect(base(), 'se', { x: 700, y: 700 }, 1000, 1000, false)).toThrow(TypeError);
+    expect(() => resizeRect(base(), 'se', { x: 700, y: 700 })).toThrow(TypeError);
   });
 });
 

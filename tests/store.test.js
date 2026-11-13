@@ -10,6 +10,31 @@ function makeStore() {
   return { store, events };
 }
 
+describe('Store — z uniqueness', () => {
+  it('z stays unique after delete + add, and after an undo of the delete', () => {
+    const { store } = makeStore();
+    const a = store.add({ kind: 'emoji', cx: 0.2, cy: 0.2 });
+    const b = store.add({ kind: 'emoji', cx: 0.5, cy: 0.5 });
+    const c = store.add({ kind: 'emoji', cx: 0.8, cy: 0.8 });
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2, 3]);
+
+    store.remove(b.id); // ids a, c with z 1, 3
+    const d = store.add({ kind: 'emoji', cx: 0.9, cy: 0.9 });
+    // `length + 1` would give z=3 again; max+1 gives 4.
+    expect(new Set(store.state.stickers.map((s) => s.z)).size).toBe(store.state.stickers.length);
+    expect(d.z).toBeGreaterThan(c.z);
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 3, 4]);
+
+    // Undo the add, then undo the delete: the restored list keeps unique z.
+    store.undo();
+    expect(new Set(store.state.stickers.map((s) => s.z)).size).toBe(store.state.stickers.length);
+    store.undo();
+    expect(new Set(store.state.stickers.map((s) => s.z)).size).toBe(store.state.stickers.length);
+    expect(store.state.stickers.map((s) => s.id)).toEqual([a.id, b.id, c.id]);
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2, 3]);
+  });
+});
+
 describe('Store — basics', () => {
   it('adds a sticker with defaults and selects it', () => {
     const { store } = makeStore();

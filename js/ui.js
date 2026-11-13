@@ -43,6 +43,8 @@ export class CanvasApp {
     this.loadedCount = 0;
     this.totalCount = EMOJI.length;
     this.image = null; // HTMLImageElement (+ .name)
+    this._layerRows = []; // [{id, label}] — last built layer rows, for geometry-only title updates
+    this._layerCount = 0; // stickers.length at the last full rebuild
     this.scale = 1; // canvas px per natural px
     this.canvasW = 0;
     this.canvasH = 0;
@@ -83,7 +85,7 @@ export class CanvasApp {
     this._bindKeys();
     this._bindToolbar();
     this._bindInputs();
-    this.store.subscribe(() => this.onStateChange());
+    this.store.subscribe((event) => this.onStateChange(event));
     this.init();
   }
 
@@ -420,10 +422,31 @@ export class CanvasApp {
 
   /* ---------- state -> DOM ---------- */
 
-  onStateChange() {
+  onStateChange(event) {
+    // The layer list only depends on the sticker set (add/remove/reorder/
+    // selection/undo/redo), never on geometry — a drag emits 'change' per
+    // pointer move and rebuilding rows every frame is pure churn. Geometry
+    // events still need the title/percentage, which changes per move; that
+    // is updated here from the live sticker without touching the DOM rows.
+    // The 'history' event means the undo stack changed but the sticker set
+    // did NOT (commitDrag, move, add, remove all push a 'history' event
+    // first) — a stale 'undo' type on that push would rebuild the list once
+    // per drag commit, which for the same reason we skip rebuilds per move
+    // must stay out of the list-sync set.
+    // 'change' vs 'history': 'change' fires on ready/geometry/preview, but
+    // may ALSO fire after a full replacement (setStickers' own 'change'
+    // comes AFTER its _push 'history', and add()/remove() follow the same
+    // pattern). Rebuilding the list on every 'change' would reintroduce the
+    // per-move rebuild for exactly the drag case. The rows must stay
+    // geometry-fresh but the COUNT must not change mid-drag.
+    const needsLayerSync = !event || !event.type || (event.type !== 'change' && event.type !== 'history');
+    if (needsLayerSync) {
+      this._syncLayerList();
+    } else {
+      this._updateLayerTitles();
+    }
     this._syncToolButtons();
     this._syncHistoryButtons();
-    this._syncLayerList();
     this._syncExportButtons();
     this._syncStrengthInputs();
     this._draw();
@@ -458,6 +481,8 @@ export class CanvasApp {
     list.replaceChildren();
     const ordered = this.store.orderedStickers();
     this.els.layerEmpty.hidden = ordered.length > 0;
+    this._layerRows = [];
+    this._layerCount = ordered.length;
     for (const st of ordered) {
       const li = document.createElement('li');
       li.className = 'layer-row';
@@ -495,7 +520,28 @@ export class CanvasApp {
       li.appendChild(del);
 
       li.addEventListener('click', () => this.store.select(st.id));
+      this._layerRows.push({ id: st.id, label });
       list.appendChild(li);
+    }
+  }
+
+  _updateLayerTitles() {
+    // Geometry-only events ('change' from move/resize/rotate): the row ORDER
+    // and set did not change, so rows stay; only the title's percentage
+    // moves with the sticker. No DOM nodes are created here.
+    // If the count DOES change (a full replacement committed after a
+    // 'history' event, e.g. setStickers on a new photo), rebuild — this
+    // branch is only a shortcut for the same-count drag case.
+    if (!this._layerRows || this.store.state.stickers.length !== this._layerCount) {
+      this._syncLayerList();
+      return;
+    }
+    const byId = new Map();
+    for (const st of this.store.state.stickers) byId.set(st.id, st);
+    for (const row of this._layerRows) {
+      const st = byId.get(row.id);
+      if (!st) continue;
+      row.label.title = `${st.kind}${st.src ? ` — ${st.src}` : ''} · ${Math.round(st.cx * 100)}%, ${Math.round(st.cy * 100)}%`;
     }
   }
 
@@ -905,7 +951,9 @@ export class CanvasApp {
           cy: norm(cyp, this.image.naturalHeight),
         });
       } else if (this.drag.mode === 'resize') {
-        const patch = resizeRect(st, this.drag.handle, pt, this.image.naturalWidth, this.image.naturalHeight, this.drag.keepAspect);
+        const patch = resizeRect(st, this.drag.handle, pt, {
+          imgW: this.image.naturalWidth, imgH: this.image.naturalHeight, keepAspect: this.drag.keepAspect,
+        });
         this.store.move(st.id, patch);
       } else if (this.drag.mode === 'rotate') {
         const cxp = px(st.cx, this.image.naturalWidth);
@@ -1001,7 +1049,9 @@ export class CanvasApp {
           } else {
             this.store.move(
               st.id,
-              resizeRect(st, this.drag.handle, pt, this.image.naturalWidth, this.image.naturalHeight, this.drag.keepAspect),
+              resizeRect(st, this.drag.handle, pt, {
+                imgW: this.image.naturalWidth, imgH: this.image.naturalHeight, keepAspect: this.drag.keepAspect,
+              }),
             );
           }
           this._draw();
@@ -1131,7 +1181,7 @@ export class CanvasApp {
       const capNote = cappedExportNote(compositeSize);
       this.setExportStatus(
         (degraded
-          ? `Saved ${filename} — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no decoded bitmap and were exported as a shaded block.`
+          ? `Saved ${filename} — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no drawable asset and were exported as a shaded block.`
           : `Saved ${filename} — metadata (EXIF/GPS) removed.`)
         + (capNote ? ` ${capNote}` : ''),
       );

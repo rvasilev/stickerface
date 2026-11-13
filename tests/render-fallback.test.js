@@ -86,11 +86,12 @@ describe('degradedStickerCount — partial failure never blocks export', () => {
     expect(degradedStickerCount(state, bitmaps, new Map(), new Map())).toBe(0);
   });
 
-  it('counts fallback and placeholder stickers as degraded (reported, not blocking)', () => {
+  it('counts only stickers with no drawable asset; a fallback <img> draws real art and is not degraded', () => {
     const fallback = new Map([['assets/emoji/1f600.svg', { width: 1, height: 1 }]]);
-    // emojiSticker has a fallback <img> but no bitmap; missingSticker has neither.
-    // blur/mosaic are never degraded.
-    expect(degradedStickerCount(state, new Map(), new Map(), fallback)).toBe(2);
+    // emojiSticker has a fallback <img> but no bitmap (draws real art);
+    // missingSticker has neither (shaded block). blur/mosaic are never degraded.
+    expect(partitionStickers([emojiSticker], new Map(), fallback, new Map()).withFallback).toHaveLength(1);
+    expect(degradedStickerCount(state, new Map(), new Map(), fallback)).toBe(1);
   });
 
   it('is zero for an empty sticker list', () => {

@@ -128,14 +128,14 @@ describe('exportSize', () => {
   });
 });
 
-describe('degradedStickerCount — meaning unchanged (§4: report, do not alter)', () => {
+describe('degradedStickerCount — only stickers with no drawable asset count', () => {
   const emojiSticker = { id: 'a', kind: 'emoji', src: 'assets/emoji/1f600.svg' };
   const missingSticker = { id: 'e', kind: 'emoji', src: 'assets/emoji/1f601.svg' };
   const blurSticker = { id: 'c', kind: 'blur' };
 
-  it('still counts fallback and placeholder stickers as degraded, blur as never', () => {
+  it('a fallback <img> draws the real artwork, so it is not degraded; a sticker with neither is', () => {
     const state = { stickers: [emojiSticker, missingSticker, blurSticker] };
     const fallback = new Map([['assets/emoji/1f600.svg', { width: 1, height: 1 }]]);
-    expect(degradedStickerCount(state, new Map(), new Map(), fallback)).toBe(2);
+    expect(degradedStickerCount(state, new Map(), new Map(), fallback)).toBe(1);
   });
 });

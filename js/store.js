@@ -63,7 +63,7 @@ export class Store {
     this._undo.push(entry);
     if (this._undo.length > UNDO_CAP) this._undo.shift();
     this._redo.length = 0;
-    this._emit({ type: 'undo' });
+    this._emit({ type: 'history' });
   }
 
   _snapshot() {
@@ -89,6 +89,9 @@ export class Store {
 
   add(sticker) {
     const before = this._snapshot();
+    // z must stay unique and in array order to match _reorder's renumbering:
+    // after a delete, `length + 1` can collide with an existing sticker.
+    const nextZ = this.state.stickers.reduce((m, s) => Math.max(m, s.z ?? 0), 0) + 1;
     const base = {
       id: sticker.id ?? uid(),
       kind: sticker.kind ?? 'emoji',
@@ -98,7 +101,7 @@ export class Store {
       w: sticker.w ?? DEFAULT_SIZE,
       h: sticker.h ?? DEFAULT_SIZE,
       rot: sticker.rot ?? 0,
-      z: sticker.z ?? (this.state.stickers.length + 1),
+      z: sticker.z ?? nextZ,
       radius: Math.min(0.5, Math.max(0, sticker.radius ?? DEFAULT_RADIUS)),
       strength: Math.max(0, sticker.strength ?? DEFAULT_STRENGTH[sticker.kind ?? 'emoji'] ?? 0),
     };

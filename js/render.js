@@ -29,25 +29,30 @@ export function requestDraw(drawFn) {
 
 /**
  * Raster fallback: draw an image that already exposes width/height onto a
- * square canvas and take the bitmap from the canvas. Chromium refuses to
- * decode a viewBox-only SVG straight from a Blob (no intrinsic size ->
- * InvalidStateError), but an <img> element given an explicit width/height
- * rasterizes fine, so this path succeeds where createImageBitmap(blob)
- * cannot. Returns null instead of throwing when the image never decodes.
+ * square canvas and take the bitmap from the canvas. This is SQUARE-ONLY: the
+ * Twemoji grid is square (viewBox 0 0 36 36) and a custom image is decoded
+ * into a square bitmap by design, so any source is flattened to a square
+ * before paint. Do not pass a non-square asset here without changing this
+ * signature (it would squash it silently).
+ * Chromium refuses to decode a viewBox-only SVG straight from a Blob (no
+ * intrinsic size -> InvalidStateError), but an <img> element given an
+ * explicit width/height rasterizes fine, so this path succeeds where
+ * createImageBitmap(blob) cannot. Returns null instead of throwing when the
+ * image never decodes.
  *
  * @param {HTMLImageElement} img decoded image (width/height established)
- * @param {number} size raster edge px
+ * @param {number} squareEdge raster edge px — the source is assumed square
  * @returns {Promise<ImageBitmap|null>}
  */
-async function bitmapFromImage(img, size) {
+async function bitmapFromSquareImage(img, squareEdge) {
   if (!img || !(img.naturalWidth > 0) || !(img.naturalHeight > 0)) return null;
   try {
     const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
+    canvas.width = squareEdge;
+    canvas.height = squareEdge;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(img, 0, 0, size, size);
+    ctx.drawImage(img, 0, 0, squareEdge, squareEdge);
     return await createImageBitmap(canvas);
   } catch {
     return null;
@@ -55,18 +60,19 @@ async function bitmapFromImage(img, size) {
 }
 
 /**
- * Load a URL into a decoded <img> with an explicit display size. Nail the
- * size down BEFORE decode() so a viewBox-only SVG gets intrinsic dimensions
- * from the element attributes rather than from its (absent) root attributes.
+ * Load a URL into a decoded <img> with an explicit SQUARE display size.
+ * Square-only (see bitmapFromSquareImage): Twemoji SVGs carry only a viewBox,
+ * so the size must be nailed down BEFORE decode() from element attributes
+ * rather than their absent root attributes.
  *
  * @param {string} src URL to load
- * @param {number} [size] explicit width/height px (default 512)
- * @returns {Promise<HTMLImageElement>} decoded image
+ * @param {number} [squareEdge] explicit width/height px (default 512)
+ * @returns {Promise<HTMLImageElement>} decoded square image
  */
-async function loadImgWithSize(src, size = 512) {
+async function loadSquareImgWithSize(src, squareEdge = 512) {
   const img = new Image();
-  img.width = size;
-  img.height = size;
+  img.width = squareEdge;
+  img.height = squareEdge;
   img.src = src;
   await img.decode();
   return img;
@@ -99,12 +105,14 @@ export async function decodeEmojiBitmaps({ size = 512, concurrency = 8 } = {}) {
         const url = entry.path;
         let img = null;
         try {
-          img = await loadImgWithSize(url, width);
+          img = await loadSquareImgWithSize(url, width);
         } catch {
           img = null;
           const res = await fetch(url);
           if (!res.ok) continue;
           const blob = await res.blob();
+          // Square-only: the Twemoji grid is viewBox 0 0 36 36, so forcing
+          // both axes to `width` is a no-op for these assets.
           const bmp = await createImageBitmap(blob, { resizeWidth: width, resizeHeight: width, resizeQuality: 'high' });
           map.set(entry.path, bmp);
           continue;
@@ -113,7 +121,7 @@ export async function decodeEmojiBitmaps({ size = 512, concurrency = 8 } = {}) {
           if (typeof img.decode === 'function') {
             try { await img.decode(); } catch { /* already decoded */ }
           }
-          const bmp = await bitmapFromImage(img, width);
+          const bmp = await bitmapFromSquareImage(img, width);
           if (bmp) map.set(entry.path, bmp);
           if (!bmp) fallback.set(entry.path, img);
         } else {
@@ -143,16 +151,19 @@ export async function decodeEmojiBitmaps({ size = 512, concurrency = 8 } = {}) {
 
 /**
  * Decode a user-supplied file/object URL into a bitmap at a good raster size.
- * Uses the same <img> path as the emoji catalogue for the same reason.
+ * Square by design: the custom sticker draws a square bitmap into a square-
+ * in-pixels box (ui.js add()), so the source — whatever its aspect — is
+ * intentionally flattened to a square here. Same <img> path as the emoji
+ * catalogue for the same viewBox-only-SVG reason.
  * @param {string|Blob} src object URL or Blob
- * @param {number} [size] target raster edge
+ * @param {number} [squareEdge] target raster edge px (default 512)
  */
-export async function decodeCustomBitmap(src, size = 512) {
+export async function decodeCustomBitmap(src, squareEdge = 512) {
   const url = typeof src === 'string' ? src : URL.createObjectURL(src);
   const ownUrl = typeof src !== 'string';
   try {
-    const img = await loadImgWithSize(url, size);
-    const bmp = await bitmapFromImage(img, size);
+    const img = await loadSquareImgWithSize(url, squareEdge);
+    const bmp = await bitmapFromSquareImage(img, squareEdge);
     if (!bmp) throw new Error('decode failed');
     return bmp;
   } finally {
