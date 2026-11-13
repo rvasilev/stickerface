@@ -136,3 +136,8 @@ jobs:
           E2E_MOBILE: "1"
           E2E_PROBE: tests/e2e/polish-probe.js
         run: bash scripts/e2e.sh
+
+      - name: Gate — the picker edits the selected sticker (swap in place)
+        env:
+          E2E_PROBE: tests/e2e/emoji-swap-probe.js
+        run: bash scripts/e2e.sh

@@ -387,6 +387,29 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — the picker now EDITS the selected sticker: clicking a different
+  emoji replaces that sticker's artwork in place, same geometry and `z`, one undo
+  step; with nothing selected it still only arms the next drop. Gate first:
+  `emoji-swap-probe.js` RED 0/7 → green 7/7, unit 119 → 124. The plan's two traps
+  were both real and both are now load-bearing:
+  - `move(id, { src })` is a **silent no-op** (`_applyGeom` writes only geometry
+    keys), so `Store.swapEmoji` exists rather than a `move` call that reads fine
+    and does nothing — proven by mutation: the click routed through `move` takes
+    the gate to 0/7 with the canvas unchanged.
+  - `change` would ship a layer row naming the OLD emoji, so the swap emits
+    `swap` (outside the `change`/`history` pair) and the list rebuilds.
+  The gate's own first draft was wrong twice and both faults are recorded: the
+  select box is compared relative to the canvas (resolving a picker point scrolls
+  the page, so a viewport rect read my own measurement as a geometry change), and
+  the no-selection criterion compares against the concrete pre-state instead of
+  `undefined === undefined`. And `layerRowLabelFollowsSwap` was initially
+  INSENSITIVE — mutating the event to `change` left it green, because the click
+  handler's `setTool` rebuilds the list too — so it now also drives `swapEmoji`
+  directly, where `change` turns exactly that one criterion red (6/7).
+  The interaction is deliberately overloaded: with a sticker selected, an emoji
+  click edits it rather than arming the next drop. Recorded as a cost, mitigated by
+  being immediate, visible, named in the layer row and one undo step.
+
 - **2026-11-14** — UI/UX polish, gate-first. `polish-probe.js` was written RED
   (desktop 3/9, phone 3/4) against measured defects, then the app was fixed until
   it was green (desktop 9/9, phone 4/4) with no other gate moving. What it caught:

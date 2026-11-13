@@ -45,6 +45,7 @@ probe must never read as success).
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 | `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
+| `emoji-swap-probe.js` — the picker EDITS the selected sticker: the artwork and the painted pixel change in place, geometry and z do not, it is one undo step, the layer row's visible name follows, the highlight follows the selection, and with nothing selected the click only arms the drop | 7 | green (2026-11-14) |
 | `polish-probe.js` — the panel is not a wall: `hidden` actually hides, sections collapse by real click, the emoji grid is capped, every control is ≥32px, every control type has a `:focus-visible` rule, one heading treatment, one number format, the nudge cluster reads ← ↑ ↓ → | 9 desktop / 4 phone | green (2026-11-14) — the only probe with a **mode-aware criteria set**: a desktop claim like "the panel fits without scrolling" is simply false on a phone, where the panel is meant to scroll, so each run reports only what holds for its viewport (CI runs both) |
 
 `layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js`,
@@ -160,6 +161,16 @@ rather than letting "no change" read as success.
   weakening a gate; keep every guard and re-run it. (`diag-layers-paint-probe.js`
   is the isolation tool for this class: it calls `moveTo` with no gesture at all and
   reports whether the canvas pixel follows the array order.)
+- **An unrelated event in the same handler can mask the one you are testing.**
+  `layerRowLabelFollowsSwap` passed with the store's `swap` event mutated to
+  `change` — the exact trap it exists to catch. Cause: the picker's click handler
+  also calls `setTool`, which emits an event outside the `change`/`history` pair,
+  so `_syncLayerList()` ran anyway and the row's name refreshed. The criterion now
+  ALSO drives `store.swapEmoji` directly, with no picker click behind it, where the
+  event type is the only thing that can refresh the label: with `change` the direct
+  half goes red (6/7) and every other criterion stays green. Same pattern as the
+  layers reorder criterion, and the lesson generalises — **if a criterion cannot be
+  made to fail by breaking the thing it names, it is not testing that thing.**
 - **A guard on the selector, not an `!important`.** The panel's phantom UI was
   `display` set by an author class rule beating the UA's `[hidden] { display: none }`
   — `.toolbar button, .file-btn`, `.panel section`, and (found only by the gate, after

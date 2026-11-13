@@ -357,3 +357,62 @@ describe('Store — photo boundary', () => {
     expect(store.state.stickers).toHaveLength(2);
   });
 });
+
+describe('Store — swapEmoji', () => {
+  const BLACK = 'assets/emoji/2b1b.svg';
+  const WHITE = 'assets/emoji/2b1c.svg';
+  const addEmoji = (store) => store.add({ kind: 'emoji', src: BLACK, cx: 0.3, cy: 0.4, w: 0.2, h: 0.3, rot: 0.5 });
+
+  it('replaces the artwork in place, leaving geometry and z alone', () => {
+    const { store } = makeStore();
+    const a = addEmoji(store);
+    const before = { ...store.state.stickers.find((s) => s.id === a.id) };
+    expect(store.swapEmoji(a.id, WHITE)).toBe(true);
+    const after = store.state.stickers.find((s) => s.id === a.id);
+    expect(after.src).toBe(WHITE);
+    expect([after.cx, after.cy, after.w, after.h, after.rot, after.z])
+      .toEqual([before.cx, before.cy, before.w, before.h, before.rot, before.z]);
+  });
+
+  it('pushes exactly ONE undo entry, and undo restores the old artwork', () => {
+    const { store } = makeStore();
+    const a = addEmoji(store);
+    const depth = store._undo.length;
+    store.swapEmoji(a.id, WHITE);
+    expect(store._undo.length).toBe(depth + 1);
+    expect(store.undo()).toBe(true);
+    expect(store.state.stickers.find((s) => s.id === a.id).src).toBe(BLACK);
+  });
+
+  it('refuses a no-op and leaves no undo entry behind', () => {
+    const { store } = makeStore();
+    const a = addEmoji(store);
+    const depth = store._undo.length;
+    expect(store.swapEmoji(a.id, BLACK)).toBe(false);   // already that emoji
+    expect(store.swapEmoji(a.id, '')).toBe(false);
+    expect(store.swapEmoji(a.id, null)).toBe(false);
+    expect(store.swapEmoji('no-such-id', WHITE)).toBe(false);
+    expect(store._undo.length).toBe(depth);
+    expect(store.state.stickers.find((s) => s.id === a.id).src).toBe(BLACK);
+  });
+
+  it('refuses to convert a patch kind — a blur has no artwork to swap', () => {
+    const { store } = makeStore();
+    const b = store.add({ kind: 'blur', cx: 0.3, cy: 0.4, radius: 0.2 });
+    const depth = store._undo.length;
+    const srcBefore = b.src;
+    expect(store.swapEmoji(b.id, WHITE)).toBe(false);
+    expect(store.state.stickers.find((s) => s.id === b.id).src).toBe(srcBefore);
+    expect(store._undo.length).toBe(depth);
+  });
+
+  it("emits 'swap', never 'change' — 'change' is the tooltip-only fast path", () => {
+    const { store, events } = makeStore();
+    const a = addEmoji(store);
+    events.length = 0;
+    store.swapEmoji(a.id, WHITE);
+    const types = events.map((e) => e.type);
+    expect(types).toContain('swap');
+    expect(types).not.toContain('change');
+  });
+});

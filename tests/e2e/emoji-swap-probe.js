@@ -154,6 +154,12 @@
     window.__sfSnaps = snaps;
     window.__sfSnap = (name) => {
       if (name === 'deselect') app.store.select(null);
+      // The event contract, driven WITHOUT the picker: the click handler also
+      // calls setTool, which emits an event that rebuilds the list on its own —
+      // so a click-path-only assertion cannot tell 'swap' from 'change'. Measured:
+      // mutating the emit to 'change' left the click path GREEN. A direct call
+      // leaves the event type as the only thing that can refresh the label.
+      if (name === 'directSwap') app.store.swapEmoji(subject.id, WHITE);
       snaps[name] = {
         src: stNow().src,
         kind: stNow().kind,
@@ -183,6 +189,13 @@
       { t: 'settle', ms: 200 },
       { t: 'click', fns: [`window.__sfPickPoint('${THIRD}')`], ms: 400 },
       { t: 'read', name: 'afterArmOnly' },
+      // 4) the store's own contract: a swap with NO picker click behind it. Only
+      // the emitted event type can refresh the row's visible name here.
+      { t: 'read', name: 'directSwap' },
+      // The paint is rAF-coalesced, so the pixel read in the tick that performed
+      // the swap is stale by construction. Read it again after a frame.
+      { t: 'settle', ms: 250 },
+      { t: 'read', name: 'directSwapPaint' },
     ];
 
     window.__sfReadTouch = () => {
@@ -191,6 +204,9 @@
       const a = s.afterSwap;
       const u = s.afterUndo;
       const arm = s.afterArmOnly;
+      const d = s.deselect;
+      const dd = s.directSwap;
+      const dp = s.directSwapPaint;
       const out = { steps: [] };
       const px = (n) => (s[n] && s[n].pixel);
 
@@ -206,8 +222,15 @@
         && a.undo === b.undo + 1 && u.undo === b.undo
         && u.src === b.src && px('afterUndo') === 'black');
 
-      out.layerRowLabelFollowsSwap = !!(b && a
-        && b.label === LABEL[BLACK] && a.label === LABEL[WHITE]);
+      // Two halves, because one is not enough: the CLICK path is what the user
+      // does, and the DIRECT path is the only one that can see the event type
+      // (the click also fires setTool, which rebuilds the list regardless).
+      // Measured: 'swap' → 'change' left the click half green and turns the
+      // direct half red.
+      out.layerRowLabelFollowsSwap = !!(b && a && dd && dp
+        && b.label === LABEL[BLACK] && a.label === LABEL[WHITE]
+        && dd.src === WHITE && dd.label === LABEL[WHITE]
+        && dp.pixel === 'white');
 
       out.pickerHighlightFollowsSelection = !!(b && a
         && b.highlight === BLACK && a.highlight === WHITE);
@@ -215,8 +238,11 @@
       // Compared against the concrete pre-state, never `undefined === undefined`:
       // an equality between two missing stickers passes for a build that deleted
       // the sticker instead of arming the drop.
-      out.swapWithoutSelectionStillArms = !!(u && arm
-        && u.selection === null
+      // The precondition is the DESELECT snapshot, not `afterUndo` — the
+      // selection is still the subject at that point, so testing it there asks
+      // the wrong question (it failed the first run for exactly that reason).
+      out.swapWithoutSelectionStillArms = !!(d && u && arm
+        && d.selection === null && arm.selection === null
         && u.src === BLACK && arm.src === BLACK
         && px('afterUndo') === 'black' && arm.pixel === 'black'
         && arm.highlight === THIRD);
@@ -225,7 +251,7 @@
         && [b, a, u, arm].every((x) => x.count === 1));
 
       out.steps.push(['refs', { black: REF.black, white: REF.white, distinct: refsDistinct }]);
-      out.steps.push(['sequence', ['before', 'afterSwap', 'afterUndo', 'afterArmOnly'].map((n) => ({
+      out.steps.push(['sequence', ['before', 'afterSwap', 'afterUndo', 'afterArmOnly', 'directSwap', 'directSwapPaint'].map((n) => ({
         n, src: s[n] && s[n].src, pixel: s[n] && s[n].pixel, label: s[n] && s[n].label,
         highlight: s[n] && s[n].highlight, undo: s[n] && s[n].undo, count: s[n] && s[n].count,
       }))]);

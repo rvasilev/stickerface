@@ -176,6 +176,13 @@ export class CanvasApp {
       img.height = 36;
       btn.appendChild(img);
       btn.addEventListener('click', () => {
+        // With a sticker selected the picker EDITS that sticker; with nothing
+        // selected the click only ARMS the next drop. Placement stays a canvas
+        // click (`_placeStickerAt`), which is why this handler never adds one.
+        // `swapEmoji` returns false for a non-emoji selection or for the emoji
+        // already in place, so neither case needs a branch here.
+        const st = this._selectedSticker();
+        if (st) this.store.swapEmoji(st.id, entry.path);
         this.lastPickedSrc = entry.path;
         this.store.setTool('emoji');
         this._syncPickerSelection();
@@ -187,9 +194,20 @@ export class CanvasApp {
     this.els.picker.dataset.built = '1';
   }
 
+  /**
+   * The highlighted option is the SELECTED sticker's emoji, falling back to
+   * `lastPickedSrc` ("armed for the next drop") when nothing is selected.
+   * Without the preference the highlight points at an emoji unrelated to the
+   * sticker being edited, so the swap reads as arbitrary.
+   *
+   * `lastPickedSrc` keeps its old meaning and still updates on every picker
+   * click, including a refused swap.
+   */
   _syncPickerSelection() {
+    const st = this._selectedSticker();
+    const active = st && st.kind === 'emoji' ? st.src : this.lastPickedSrc;
     for (const btn of this.els.picker.children) {
-      btn.setAttribute('aria-selected', btn.dataset.src === this.lastPickedSrc ? 'true' : 'false');
+      btn.setAttribute('aria-selected', btn.dataset.src === active ? 'true' : 'false');
     }
   }
 
@@ -445,6 +463,11 @@ export class CanvasApp {
     const needsLayerSync = !event || !event.type || (event.type !== 'change' && event.type !== 'history');
     if (needsLayerSync) {
       this._syncLayerList();
+      // Same predicate, same reason: the set OR the selection changed, which is
+      // exactly when the picker's highlight must follow. Deliberately NOT on
+      // every 'change' — that fires per pointer move during a drag, and 76
+      // setAttribute calls per frame is the churn this file already avoids.
+      this._syncPickerSelection();
     } else {
       this._updateLayerTitles();
     }

@@ -134,6 +134,29 @@ array order and paint order cannot diverge, and an out-of-range or same-index ca
 is a no-op that pushes no undo entry. `raise`/`lower` are thin callers of it; the
 layer-row ⤴/⤵ buttons, `[`/`]`, and the grip drag all go through the same call.
 
+`swapEmoji(id, src)` is the single artwork-swap path, and it exists because
+`move(id, { src })` does **not** work: `_applyGeom` writes only the geometry keys
+and `_geomChanged` returns false for a src-only patch, so `move` would emit a
+`change`, report success and change nothing — silently. It refuses a non-emoji
+kind (a blur has no artwork), a missing/empty src and the emoji already in place,
+leaving no undo entry behind. Geometry and `z` are untouched by design: every
+Twemoji is square, so a sticker's box stays valid across a swap.
+
+It emits **`swap`**, not `change`. `change` is the geometry fast path, where
+`onStateChange` calls `_updateLayerTitles()` — which refreshes the `title` TOOLTIP
+only. A layer row's VISIBLE text is the emoji's name, so a swap emitting `change`
+would leave the row naming the old emoji while the canvas showed the new one.
+`swap` is outside the `change`/`history` pair, so it takes the `_syncLayerList()`
+branch. (Note the gate: `emoji-swap-probe.js` drives `swapEmoji` directly for
+this, because a picker click also emits a `setTool` event that rebuilds the list
+regardless — masking the difference.)
+
+`lastPickedSrc` has two meanings and both must keep working: it is "armed for the
+next drop" (a canvas click places it), and `_syncPickerSelection` prefers the
+SELECTED sticker's emoji over it, so the highlight points at what an edit would
+change rather than at an unrelated emoji. A refused swap — a blur selected, or the
+same emoji — still updates `lastPickedSrc`.
+
 ## Why this shape
 
 - **No bundler:** the app is ~1 500 lines; GitHub Pages serves the source directly.

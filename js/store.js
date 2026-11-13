@@ -149,6 +149,33 @@ export class Store {
     this.move(id, { rot });
   }
 
+  /**
+   * Replace an emoji sticker's artwork IN PLACE. Geometry and z stay put.
+   *
+   * Not `move(id, { src })`: `_applyGeom` writes only the geometry keys and
+   * `_geomChanged` returns false for a src-only patch, so `move` would emit a
+   * 'change', report success and change NOTHING — silently. A swap built on it
+   * reads correctly in review and does nothing at runtime.
+   *
+   * Emits 'swap', not 'change'. A layer row's VISIBLE text is the emoji's name
+   * (`labelFor`), and 'change' is the geometry fast path that refreshes tooltips
+   * only — so a swap emitting 'change' would leave the row naming the old emoji
+   * while the canvas showed the new one.
+   *
+   * Returns true only when it actually swapped; a refused swap must not leave an
+   * undo entry behind.
+   */
+  swapEmoji(id, src) {
+    const st = this._find(id);
+    if (!st || st.kind !== 'emoji' || typeof src !== 'string' || !src || st.src === src) return false;
+    const before = this._snapshot();
+    st.src = src;
+    const after = this._snapshot();
+    this._push({ undo: () => this._restore(before), redo: () => this._restore(after) });
+    this._emit({ type: 'swap' });
+    return true;
+  }
+
   _applyGeom(st, patch) {
     if (!patch || typeof patch !== 'object') return;
     for (const k of ['cx', 'cy', 'w', 'h', 'rot']) {
