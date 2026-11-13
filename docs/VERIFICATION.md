@@ -39,7 +39,7 @@ probe must never read as success).
 | `mobile-probe.js` — one finger = sticker ops, two fingers = pan, second finger cancels a drag, double-tap deletes | 12 | green |
 | `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag, and the contact count returns to zero | 8 | green |
 | `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **4 green** — not implemented |
-| `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | **3 green** — not implemented |
+| `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 
 `layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js` and
 `diag-mobile-metrics-probe.js` are **diagnostics**, not gates: they print app
@@ -113,6 +113,17 @@ rather than letting "no change" read as success.
   an "emptiest on-screen spot" search) and assert the clearance you got — a sticker
   is 216 natural px wide, so require >150 px of clearance or the criterion is
   measuring the wrong thing.
+- **A screen-space oracle that ignores the view pan measures the pan.** "The sticker
+  must not move when a second finger cancels the drag" cannot be measured as a raw
+  screen displacement: two fingers pan the photo, the sticker rides the photo, so the
+  sticker legitimately moves by the pan. Subtract the image's own shift
+  (`interruptStickerShiftRelImage`); it was 0.33px against a 40px pan. Guard the
+  criterion on the pan actually happening, or "nothing moved" passes as a cancel.
+- **Do not assert an exact arithmetic product against a clamped value.** The low-zoom
+  clamp was checked as `minR <= 1.6`, which is exactly what `scale 8 x (6/30)` produces:
+  the bound sat ON the correct answer and failed on 0.2% raster noise. State the
+  property instead (came back toward fit, never below fit) — a broken clamp or a dead
+  pinch-in still fails it.
 
 ## Traps
 

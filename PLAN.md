@@ -375,7 +375,7 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
 | **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `npm run e2e:mobile` = 12/12 (incl. double-tap delete + zero leaked contacts), desktop probes green | **done** (2026-11-13) |
 | **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 8/8, M5 gate still green | **spec'd, not started** |
-| **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **spec'd, not started** (baseline 3/9) |
+| **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **done** (2026-11-14, three delegated rounds) |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so

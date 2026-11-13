@@ -183,8 +183,17 @@
       out.pinchClampsZoomRange = !!maxR && maxR <= 8.6 && maxR > 1.5;
       out.steps.push(['maxZoomRatio', maxR]);
       const minR = ratio(t0, zmin);
-      out.pinchClampsMinZoom = !!maxR && maxR > 1.5 && !!minR && minR >= 0.95 && minR <= 1.6;
+      // The low clamp, stated as the clamp and not as an exact product. At the maximum
+      // zoom (scale 8) a pinch from 30px to 6px is 8 * (6/30) = exactly 1.6 - which sat
+      // ON the old `minR <= 1.6` bound and failed on ~0.2% raster noise. What must hold:
+      // the pinch-in brings the view back toward fit (a large reduction from the zoomed
+      // state) and never goes below fit (scale >= 1). Both halves still fail if the
+      // clamp breaks or the pinch-in stops working.
+      const reduction = maxR && minR ? minR / maxR : null;
+      out.pinchClampsMinZoom = !!maxR && maxR > 1.5 && !!minR && minR >= 0.95 &&
+        !!reduction && reduction < 0.6;
       out.steps.push(['minZoomRatio', minR]);
+      out.steps.push(['minOverMaxRatio', reduction]);
 
       // The sticker rides the image: frame width / sticker width stays constant.
       const f0 = (t0 && t0.yellowW) ? t0.frameW / t0.yellowW : null;

@@ -151,10 +151,21 @@
       out.twoFingerDoesNotAddSticker = !!pan && !!one1 &&
         Math.abs(pan.yellowPixels - one1.yellowPixels) < Math.max(120, one1.yellowPixels * 0.35);
 
+      // A drag is cancelled iff the sticker has NOT moved RELATIVE TO THE PHOTO. The
+      // interruption legitimately pans the image, and a sticker rides the image, so the
+      // screen-space shift must be compared against the image's OWN shift. Comparing it
+      // to zero (the previous bound) measured the pan, and reported ~40px - the pan
+      // distance - as a failed cancel while the sticker's image-space position was
+      // unchanged to within 0.4px.
+      const imgShift = shift(pan && pan.red, interrupt && interrupt.red);
       const id = shift(pan && pan.yellow, interrupt && interrupt.yellow);
-      out.secondFingerCancelsDrag = !!id && Math.hypot(id.dx, id.dy) < 12;
+      const rel = id && imgShift ? { dx: id.dx - imgShift.dx, dy: id.dy - imgShift.dy } : null;
+      // Guarded: the interruption must actually have panned, or "nothing moved" passes.
+      out.secondFingerCancelsDrag = !!rel && !!imgShift &&
+        Math.hypot(imgShift.dx, imgShift.dy) > 5 && Math.hypot(rel.dx, rel.dy) < 12;
       out.steps.push(['interruptStickerShift', id]);
-      out.steps.push(['interruptImageShift', shift(pan && pan.red, interrupt && interrupt.red)]);
+      out.steps.push(['interruptStickerShiftRelImage', rel]);
+      out.steps.push(['interruptImageShift', imgShift]);
 
       const dt = s.afterDoubleTap;
       const pre = s.afterTapForDelete;
