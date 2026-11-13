@@ -1,0 +1,3 @@
+Served as-is. No Jekyll: this is a no-build static app, so GitHub Pages must not
+render or rewrite anything (without this file .md files become .html and any
+underscore-prefixed path is dropped).
