@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>StickerFace — hide faces in photos, offline</title>
+  <meta name="description" content="Hide faces in photos with an emoji, blur or mosaic sticker. Offline, no account, everything stays on your device.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="appbar">
+    <h1>StickerFace</h1>
+    <p class="tagline">Hide faces in a photo with an emoji, blur or mosaic patch — entirely offline.</p>
+  </header>
+
+  <div class="layout">
+    <!-- Left toolbar -->
+    <nav class="toolbar" aria-label="Tools">
+      <div class="group" role="group" aria-label="Sticker tools">
+        <button type="button" id="tool-emoji" class="tool" aria-pressed="true" title="Emoji sticker (click canvas to drop)">
+          <span class="tool-icon" aria-hidden="true">😀</span><span class="tool-label">Emoji</span>
+        </button>
+        <button type="button" id="tool-blur" class="tool" aria-pressed="false" title="Blur patch (click canvas to drop)">
+          <span class="tool-icon" aria-hidden="true">◍</span><span class="tool-label">Blur</span>
+        </button>
+        <button type="button" id="tool-mosaic" class="tool" aria-pressed="false" title="Mosaic patch (click canvas to drop)">
+          <span class="tool-icon" aria-hidden="true">▦</span><span class="tool-label">Mosaic</span>
+        </button>
+      </div>
+
+      <div class="group" role="group" aria-label="History">
+        <button type="button" id="btn-undo" disabled title="Undo (Ctrl+Z)">↩ Undo</button>
+        <button type="button" id="btn-redo" disabled title="Redo (Ctrl+Shift+Z)">↪ Redo</button>
+      </div>
+
+      <div class="group" role="group" aria-label="Export">
+        <button type="button" id="btn-export-png" disabled title="Export as PNG at full resolution">Export PNG</button>
+        <button type="button" id="btn-export-jpeg" disabled title="Export as JPEG at full resolution (quality 0.92)">Export JPEG</button>
+        <p class="note">Export re-encodes through a canvas — EXIF and GPS metadata are removed.</p>
+        <p class="note" id="export-status" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="group" role="group" aria-label="Layout">
+        <button type="button" id="btn-apply-next" disabled title="Keep this sticker layout and open the next photo">Apply layout to next photo</button>
+      </div>
+
+      <div class="group">
+        <button type="button" id="btn-about" aria-expanded="false" aria-controls="about-panel">About</button>
+      </div>
+
+      <div class="group help" aria-label="Keyboard shortcuts">
+        <h2>Keys</h2>
+        <ul>
+          <li><kbd>click</kbd> drop sticker</li>
+          <li><kbd>arrows</kbd> nudge 1px · <kbd>Shift</kbd> 10px</li>
+          <li><kbd>Delete</kbd> remove selected</li>
+          <li><kbd>Ctrl+Z</kbd> undo · <kbd>Ctrl+Shift+Z</kbd> redo</li>
+          <li><kbd>[</kbd> / <kbd>]</kbd> bring back / forward</li>
+        </ul>
+      </div>
+    </nav>
+
+    <!-- Centre stage -->
+    <main class="stage" id="stage">
+      <div class="stage-empty" id="stage-empty">
+        <p>Drop a photo here, or</p>
+        <label class="file-btn" for="file-input">choose a photo<input type="file" id="file-input" accept="image/*"></label>
+        <p class="note">Images only — video is out of scope. Nothing is uploaded.</p>
+      </div>
+      <div class="canvas-wrap" id="canvas-wrap" hidden>
+        <canvas id="stage-canvas" aria-label="Photo with stickers. Click to drop a sticker; drag stickers to move them."></canvas>
+        <!-- Selection chrome (positioned by JS) -->
+        <div class="select-box" id="select-box" hidden aria-hidden="true">
+          <button type="button" class="handle" data-handle="nw" aria-label="Resize north-west"></button>
+          <button type="button" class="handle" data-handle="n" aria-label="Resize north"></button>
+          <button type="button" class="handle" data-handle="ne" aria-label="Resize north-east"></button>
+          <button type="button" class="handle" data-handle="e" aria-label="Resize east"></button>
+          <button type="button" class="handle" data-handle="se" aria-label="Resize south-east"></button>
+          <button type="button" class="handle" data-handle="s" aria-label="Resize south"></button>
+          <button type="button" class="handle" data-handle="sw" aria-label="Resize south-west"></button>
+          <button type="button" class="handle" data-handle="w" aria-label="Resize west"></button>
+          <button type="button" class="handle rotate" data-handle="rotate" aria-label="Rotate"></button>
+        </div>
+      </div>
+      <p class="stage-hint" id="stage-hint" hidden>Click canvas to drop a sticker · drag to move · corners resize (Shift = free) · handle rotates (Shift = 15° snap)</p>
+    </main>
+
+    <!-- Right panel -->
+    <aside class="panel" aria-label="Emoji picker and layers">
+      <section aria-labelledby="picker-heading">
+        <h2 id="picker-heading">Emoji</h2>
+        <div class="picker" id="emoji-picker" role="listbox" aria-label="Emoji picker"></div>
+        <label class="file-btn small" for="custom-input">Use my own image…<input type="file" id="custom-input" accept="image/*"></label>
+        <p class="note">Your image is decoded in this tab only — never uploaded.</p>
+      </section>
+
+      <section aria-labelledby="strength-heading">
+        <h2 id="strength-heading">Strength <span id="strength-value" class="mono">18</span></h2>
+        <input type="range" id="strength" min="2" max="80" step="1" value="18" aria-label="Blur sigma or mosaic block size (px at full scale)">
+        <h2>Corner radius <span id="radius-value" class="mono">0.50</span></h2>
+        <input type="range" id="radius" min="0" max="0.5" step="0.01" value="0.5" aria-label="Corner rounding">
+      </section>
+
+      <section aria-labelledby="layers-heading">
+        <h2 id="layers-heading">Layers</h2>
+        <ul class="layers" id="layer-list"></ul>
+        <p class="note" id="layer-empty">No stickers yet — click the canvas with a tool active.</p>
+      </section>
+
+      <section id="about-panel" aria-labelledby="about-heading" hidden>
+        <h2 id="about-heading">About</h2>
+        <p>StickerFace hides faces in a photo with an emoji sticker, a blur patch or a mosaic patch. Plain HTML, CSS and JavaScript — no build step, no bundler, no framework, and no network requests after the page loads. Nothing leaves your device.</p>
+        <p>Credits:</p>
+        <ul>
+          <li>Emoji artwork: <a href="https://github.com/jdecked/twemoji">Twemoji</a> by X Corp. and contributors, licensed CC-BY 4.0 — see <code>assets/emoji/ATTRIBUTION.md</code>. StickerFace is MIT, the artwork is not.</li>
+          <li>Face-detection ideas and design lessons from <a href="https://github.com/ORB-HD/deface">ORB-HD/deface</a> (MIT) and <a href="https://github.com/kmcheung12/faceblind">kmcheung12/faceblind</a> (MIT).</li>
+        </ul>
+        <p>Export re-encodes the photo through a canvas, so EXIF and GPS metadata are removed. Video is not supported.</p>
+      </section>
+    </aside>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
