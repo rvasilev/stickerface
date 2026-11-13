@@ -110,6 +110,11 @@ kbd {
   color: var(--text-dim);
 }
 .stage-empty .file-btn { margin: 0.5rem auto; justify-content: center; display: inline-flex; }
+/* The hint overlays the photo whenever the photo fills the stage height (any
+   portrait shot), and the stage paints nothing behind it — so the text sat
+   directly on the image. --text-dim on a light photo measured 2.6:1: invisible.
+   An opaque chip (surface + border, the same tokens as every other control)
+   makes the hint independent of whatever is underneath — 6.3:1 minimum. */
 .stage-hint {
   position: absolute;
   left: 0.75rem;
@@ -117,6 +122,11 @@ kbd {
   margin: 0;
   font-size: 0.78rem;
   color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  pointer-events: none;
 }
 .canvas-wrap {
   position: relative;

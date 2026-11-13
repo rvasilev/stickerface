@@ -41,6 +41,7 @@ probe must never read as success).
 | `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag, and the contact count returns to zero | 8 | green |
 | `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **4 green** — not implemented |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
+| `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 
 `layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js`,
 `diag-mobile-metrics-probe.js`, `diag-zoom-internals-probe.js` and
