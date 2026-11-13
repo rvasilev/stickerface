@@ -9,8 +9,11 @@ name: CI
 # features are being implemented; a CI that fails for known reasons trains people
 # to ignore it. Add each one here in the same commit that makes it green.
 #
-# The touch gate also needs the fixture at the mobile viewport, so it runs through
-# its own wrapper; the probes below reuse scripts/e2e.sh via E2E_PROBE.
+# One launcher for every gate: scripts/e2e.sh (E2E_PROBE selects the probe,
+# E2E_MOBILE=1 the phone emulation). It also owns the Chrome flag fallback, which
+# is why this workflow does NOT force CHROME_BIN: the runner's own Google Chrome
+# is found by `command -v google-chrome-stable`, while a chromium/chrome-headless-
+# shell build (what setup-chrome hands out for "stable") aborts on --headless=new.
 
 on:
   push:
@@ -28,11 +31,16 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Set up Chrome
-        id: chrome
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
+      - name: Check the browser
+        # Evidence of which build the gates ran against, and a clear failure
+        # instead of a 40-line ConnectionRefused traceback.
+        run: |
+          command -v google-chrome-stable || {
+            echo "no google-chrome-stable on this runner — scripts/e2e.sh will look" >&2
+            echo "for chromium next, but prefer installing real Chrome" >&2
+            exit 1
+          }
+          google-chrome-stable --version
 
       - name: Install dev dependencies
         # This repository's dev box exports NODE_ENV=production, which makes npm
@@ -47,38 +55,30 @@ jobs:
       - name: Unit gate
         run: npm test
 
-      - name: Acceptance gate — the user journey (upload → stickers → export)
-        env:
-          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+      - name: Gate — the user journey (upload → stickers → export)
         run: npm run e2e
 
       - name: Gate — selection frame wraps the drawn sticker
         env:
-          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
           E2E_PROBE: tests/e2e/selection-probe.js
         run: bash scripts/e2e.sh
 
       - name: Gate — double-click deletes a sticker
         env:
-          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
           E2E_PROBE: tests/e2e/delete-probe.js
         run: bash scripts/e2e.sh
 
       - name: Gate — selection handles are small with a finger-sized hit area
         env:
-          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
           E2E_MOBILE: "1"
           E2E_PROBE: tests/e2e/handles-probe.js
         run: bash scripts/e2e.sh
 
       - name: Gate — touch model (1 finger = stickers, 2 fingers = pan)
-        env:
-          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
         run: npm run e2e:mobile
 
       - name: Gate — tap-to-place survives a pan and a cancelled drag
         env:
-          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
           E2E_MOBILE: "1"
           E2E_PROBE: tests/e2e/tap-after-pan-probe.js
         run: bash scripts/e2e.sh

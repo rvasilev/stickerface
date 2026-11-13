@@ -49,16 +49,46 @@ else
 fi
 
 # The URL must be on the command line: CDP Page.navigate refuses loopback targets.
-"$CHROME_BIN" --headless=new --remote-debugging-port="$CDP_PORT" \
-  --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check \
-  --disable-gpu --disable-dev-shm-usage --window-size=1400,1000 \
-  "$TARGET" >/tmp/sf-e2e-chrome.log 2>&1 &
-CHROME_PID=$!
+#
+# Flag sets are tried in order because headless Chrome is not one thing across
+# environments: a `chrome-headless-shell` / Chromium build ABORTS on
+# `--headless=new` (observed on a GitHub runner: "Aborted (core dumped)"), while
+# some sandboxed containers need `--no-sandbox`. Whichever set answers on the CDP
+# port wins, and the Chrome log is printed when none does — an unexplained
+# ConnectionRefused is otherwise a 40-line traceback pointing nowhere.
+CHROME_PID=""
+start_chrome() {
+  # $@ = extra flags
+  "$CHROME_BIN" "$@" --remote-debugging-port="$CDP_PORT" \
+    --user-data-dir="$PROFILE" --no-first-run --no-default-browser-check \
+    --disable-gpu --disable-dev-shm-usage --window-size=1400,1000 \
+    "$TARGET" >>/tmp/sf-e2e-chrome.log 2>&1 &
+  CHROME_PID=$!
+  for _ in $(seq 1 24); do
+    curl -sf -o /dev/null "http://127.0.0.1:${CDP_PORT}/json/version" && return 0
+    kill -0 "$CHROME_PID" 2>/dev/null || return 1   # died: try the next set
+    sleep 0.5
+  done
+  return 1
+}
 
-for _ in $(seq 1 40); do
-  curl -sf -o /dev/null "http://127.0.0.1:${CDP_PORT}/json/version" && break
+: >/tmp/sf-e2e-chrome.log
+LOGIN_SET=""
+for flags in "--headless=new" "--headless=new --no-sandbox" "--headless --no-sandbox" "--headless"; do
+  # shellcheck disable=SC2086
+  if start_chrome $flags; then LOGIN_SET="$flags"; break; fi
+  [ -n "$CHROME_PID" ] && kill "$CHROME_PID" 2>/dev/null
+  CHROME_PID=""
   sleep 0.5
 done
+if [ -z "$LOGIN_SET" ]; then
+  echo "e2e: Chrome never opened the CDP port on 127.0.0.1:${CDP_PORT}." >&2
+  echo "e2e: binary=$CHROME_BIN  tried: --headless=new, +--no-sandbox, --headless" >&2
+  echo "--- /tmp/sf-e2e-chrome.log (last 30 lines) ---" >&2
+  tail -30 /tmp/sf-e2e-chrome.log >&2
+  exit 2
+fi
+echo "e2e: chrome flags = $LOGIN_SET"
 sleep 1.5   # let the app boot before the probe reloads it
 
 echo "e2e: target=$TARGET probe=$PROBE cdp=$CDP_PORT mobile=${E2E_MOBILE:-0}"
