@@ -105,6 +105,12 @@
       ...move([[cx + stickerDx, cy + stickerDy], [cx + stickerDx + 70, cy + stickerDy + 50]], 40, 40),
       { t: 'touchEnd', pts: [], ms: 250 },
       { t: 'read', name: 'afterInterrupt' },
+      // 5) double-tap on the sticker removes it (two taps inside the window)
+      { t: 'touchStart', pts: [[cx, cy]], ms: 60 },
+      { t: 'touchEnd', pts: [], ms: 70 },
+      { t: 'touchStart', pts: [[cx, cy]], ms: 60 },
+      { t: 'touchEnd', pts: [], ms: 260 },
+      { t: 'read', name: 'afterDoubleTap' },
     ];
 
     window.__sfReadTouch = () => {
@@ -138,6 +144,11 @@
       out.secondFingerCancelsDrag = !!id && Math.hypot(id.dx, id.dy) < 12;
       out.steps.push(['interruptStickerShift', id]);
       out.steps.push(['interruptImageShift', shift(pan && pan.red, interrupt && interrupt.red)]);
+
+      const dt = s.afterDoubleTap;
+      out.doubleTapDeletesSticker = !!dt && !!interrupt &&
+        dt.yellowPixels < Math.max(200, interrupt.yellowPixels * 0.05);
+      out.steps.push(['afterDoubleTap', dt]);
       return JSON.stringify(out);
     };
 

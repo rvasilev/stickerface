@@ -167,7 +167,7 @@
       out.steps.push(['sizeRatio', grow]);
       const gw = (t0 && pin && t0.yellowW > 0) ? pin.yellowW / t0.yellowW : null;
       const gh = (t0 && pin && t0.yellowH > 0) ? pin.yellowH / t0.yellowH : null;
-      out.pinchScalesUniformly = !!gw && !!gh && Math.abs(gw - gh) / gw < 0.2;
+      out.pinchScalesUniformly = !!gw && !!gh && gw > 1.2 && Math.abs(gw - gh) / gw < 0.2;
       out.steps.push(['growthWH', [gw, gh]]);
       const da = dAng(pin, tw);
       out.twistRotatesSticker = !!da && da > 18;
@@ -178,7 +178,8 @@
       out.pinchIsOneUndoStep = !!un && !!t0 &&
         Math.abs(un.yellowW - t0.yellowW) / Math.max(1, t0.yellowW) < 0.15 &&
         (dAng(t0, un) === null || dAng(t0, un) < 6);
-      out.steps.push(['undoSize', [t0 && t0.yellowW, un && un.yellowW], 'undoOrientation', [t0 && t0.orientation, un && un.orientation]]);
+      out.steps.push(['undoSize', [t0 && t0.yellowW, un && un.yellowW]]);
+      out.steps.push(['undoOrientation', [t0 && t0.orientation, un && un.orientation]]);
       const panMove = imgMove(un, pan);
       out.twoFingerOutsideFrameStillPans = panMove !== null && panMove > 25;
       out.steps.push(['imageMoveDuringPan', panMove]);

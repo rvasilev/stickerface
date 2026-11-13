@@ -308,8 +308,8 @@ highest-value manual-mode feature: a family photo set is 10 near-identical shots
 | **M2** | emoji picker (curated Twemoji set), custom image sticker, "same layout next photo" | probe + manual batch of 3 photos | **done**; batch flow needs a manual pass |
 | **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 15/15 + `selection-probe` 6/6, exit 0 | **done**, except CI |
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
-| **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `scripts/e2e-mobile.sh` = 9/9, desktop probes still green | **in progress** |
-| **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 7/7, M5 gate still green | **spec'd, not started** |
+| **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `scripts/e2e-mobile.sh` = 9/9, desktop probes still green | **done** (2026-11-13; the probe's 10th criterion, double-tap delete, belongs to the next item) |
+| **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 8/8, M5 gate still green | **spec'd, not started** |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so
@@ -343,6 +343,15 @@ It is a real browser, a real file upload and real pixel assertions — see
   a real handle drag). Lesson: the first version of that probe "passed" resize
   because synthetic pointer events cannot drive handles — handle drags must use
   real CDP input.
+- **2026-11-13** — user-reported defect (e): on a phone there was no way to scroll the
+  photo without moving a sticker. The gesture model is now implemented (M5): one
+  finger works the stickers, two fingers pan the image, a second finger cancels an
+  in-flight drag, and placement moved to `pointerup` (8 px threshold) so a pan
+  attempt cannot drop a sticker. Gate `scripts/e2e-mobile.sh` **9/9** (was 7/9: two
+  fingers moved the *sticker* +59.8 px instead of panning by 0.0). Root cause of the
+  handle exception in the same pass: `setPointerCapture` on touch pointers
+  re-targeted the second finger's moves away from the handle, leaving
+  `ev.target.dataset.handle` undefined.
 - Recurring lesson, recorded in `AGENTS.md` and `docs/AGENT-WORKFLOW.md`: a green
   unit suite is not the app working.
 
