@@ -300,6 +300,12 @@ kbd {
 }
 .layer-row button:hover { border-color: var(--accent); }
 .layer-row .del:hover { border-color: var(--danger); color: var(--danger); }
+details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+details > summary::-webkit-details-marker { display: none; }
+details > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Focus */
 button:focus-visible, a:focus-visible, input:focus-visible, .file-btn:focus-within {
