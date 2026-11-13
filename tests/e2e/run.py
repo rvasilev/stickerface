@@ -75,6 +75,39 @@ async def main(probe_path, url_match="8123"):
             "Runtime.evaluate",
             {"expression": expr, "awaitPromise": True, "returnByValue": True, "timeout": 60000},
         )
+
+        # Two-phase probes: a probe may return `nextDrag: {x0,y0,x1,y1}` plus install
+        # `window.__sfRead()` to report the outcome. Handle drags MUST use real input
+        # (Input.dispatchMouseEvent) — a synthetic dispatchEvent pointerdown has no
+        # active pointer, so `setPointerCapture` throws and the drag never starts.
+        drag_result = None
+        try:
+            first = json.loads(res["result"]["result"].get("value") or "{}")
+        except Exception:
+            first = {}
+        plan = first.get("nextDrag") if isinstance(first, dict) else None
+        if plan:
+            x0, y0, x1, y1 = plan["x0"], plan["y0"], plan["x1"], plan["y1"]
+            base = {"button": "left", "buttons": 1, "clickCount": 1, "pointerType": "mouse"}
+            await send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x0, "y": y0, "buttons": 0})
+            await send("Input.dispatchMouseEvent", {"type": "mousePressed", "x": x0, "y": y0, **base})
+            steps = 8
+            for i in range(1, steps + 1):
+                await send("Input.dispatchMouseEvent", {
+                    "type": "mouseMoved",
+                    "x": x0 + (x1 - x0) * i / steps,
+                    "y": y0 + (y1 - y0) * i / steps,
+                    **base,
+                })
+                await asyncio.sleep(0.03)
+            await send("Input.dispatchMouseEvent", {"type": "mouseReleased", "x": x1, "y": y1, **base})
+            await asyncio.sleep(0.4)
+            read = await send("Runtime.evaluate", {
+                "expression": "window.__sfRead ? window.__sfRead() : null",
+                "awaitPromise": True, "returnByValue": True, "timeout": 20000,
+            })
+            drag_result = read["result"]["result"].get("value")
+
         try:
             while True:
                 events.append(json.loads(await asyncio.wait_for(ws.recv(), timeout=0.4)))
@@ -121,6 +154,26 @@ async def main(probe_path, url_match="8123"):
         for k, v in data.items():
             if isinstance(v, bool):
                 checks[k] = v
+
+    # Phase-2 (real-input drag) results, when the probe asked for one.
+    if drag_result:
+        try:
+            second = json.loads(drag_result)
+        except Exception:
+            second = None
+        if isinstance(second, dict):
+            print("=== drag phase ===")
+            for k, v in second.get("steps", []):
+                print(f"{k}: {json.dumps(v)}")
+            for e in second.get("errors", []):
+                print("DRAG ERROR: " + e)
+            for k, v in second.items():
+                if isinstance(v, bool):
+                    checks[k] = v
+        else:
+            print("=== drag phase ===")
+            print(str(drag_result)[:800])
+
     print("=== checks ===")
     for k, v in checks.items():
         print(f"  {'PASS' if v else 'FAIL'}  {k}")
