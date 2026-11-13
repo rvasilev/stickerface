@@ -104,11 +104,22 @@ async def main(probe_path):
             print("PROBE ERROR: " + e)
     else:
         print(json.dumps(data, indent=1))
-    print("=== failures ===")
+
+    # Acceptance criteria are TOP-LEVEL boolean keys; steps are just the evidence.
+    checks = {}
     if isinstance(data, dict):
-        fails = [k for k, v in data.items() if v is False] if "steps" not in data else []
-        print(fails or "(none reported as boolean false)")
-    return 0
+        for k, v in data.items():
+            if isinstance(v, bool):
+                checks[k] = v
+    print("=== checks ===")
+    for k, v in checks.items():
+        print(f"  {'PASS' if v else 'FAIL'}  {k}")
+    failed = [k for k, v in checks.items() if not v]
+    if not checks:
+        print("  (probe reported no boolean criteria — fix the probe)")
+        return 1
+    print(f"=== {len(checks) - len(failed)}/{len(checks)} passed ===")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

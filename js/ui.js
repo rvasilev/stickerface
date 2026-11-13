@@ -32,6 +32,7 @@ export class CanvasApp {
     this.root = root;
     this.store = new Store();
     this.bitmaps = new Map();
+    this.fallback = new Map();
     this.customBitmaps = new Map();
     this.ready = false;
     this.loadedCount = 0;
@@ -55,14 +56,17 @@ export class CanvasApp {
   }
 
   async init() {
-    const { bitmaps, ready, loaded, total } = await decodeEmojiBitmaps();
+    const { bitmaps, fallback, ready, loaded, total } = await decodeEmojiBitmaps();
     this.bitmaps = bitmaps;
+    this.fallback = fallback ?? new Map();
     this.ready = ready;
     this.loadedCount = loaded;
     this.totalCount = total;
     this.onStateChange();
     if (!ready) {
-      this.setExportStatus(`Emoji assets: ${loaded}/${total} loaded — export stays available once all decode.`);
+      this.setExportStatus(
+        `Some emoji failed to rasterize (${loaded}/${total} decoded) — affected stickers will export as a shaded block so nothing is left uncovered.`,
+      );
     }
   }
 
@@ -106,6 +110,12 @@ export class CanvasApp {
   }
 
   _buildPicker() {
+    // Idempotent per element: the picker gets exactly one button per emoji
+    // even if construction is ever re-entered.
+    if (this.els.picker.dataset.built === '1' && this.els.picker.children.length === EMOJI.length) {
+      return;
+    }
+    this.els.picker.replaceChildren();
     for (const entry of EMOJI) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -130,6 +140,7 @@ export class CanvasApp {
       });
       this.els.picker.appendChild(btn);
     }
+    this.els.picker.dataset.built = '1';
   }
 
   _syncPickerSelection() {
@@ -209,6 +220,7 @@ export class CanvasApp {
         image: this.image,
         stickers: this.store.orderedStickers(),
         bitmaps: this.bitmaps,
+        fallback: this.fallback,
         customBitmaps: this.customBitmaps,
         imgW: this.image.naturalWidth,
         imgH: this.image.naturalHeight,
@@ -270,10 +282,10 @@ export class CanvasApp {
 
   _syncExportButtons() {
     const hasImage = Boolean(this.image);
-    // Gate on the `ready` flag rather than throwing: while bitmaps decode,
-    // export is disabled with an explanation instead of an exception.
-    this.els.exportPng.disabled = !hasImage || !this.ready;
-    this.els.exportJpeg.disabled = !hasImage || !this.ready;
+    // Export gates on "an image is loaded", never on a fully decoded
+    // catalogue: a missing asset degrades to a placeholder, it never blocks.
+    this.els.exportPng.disabled = !hasImage;
+    this.els.exportJpeg.disabled = !hasImage;
   }
 
   _syncStrengthInputs() {
@@ -397,6 +409,7 @@ export class CanvasApp {
         h: 0.18,
       });
     } catch {
+      URL.revokeObjectURL(url);
       this.setExportStatus('Could not decode that image — try a PNG or JPEG.');
     }
   }
@@ -592,16 +605,18 @@ export class CanvasApp {
   /* ---------- export + batch ---------- */
 
   async doExport(mime) {
-    if (!this.ready) {
-      this.setExportStatus('Emoji assets are still loading — export will be available once all decode.');
-      return;
-    }
     if (!this.image) return;
     this.setExportStatus('Exporting at full resolution…');
     try {
-      const { blob, filename } = await exportImage(this.store.state, this.bitmaps, this.customBitmaps, mime);
+      // A partial asset failure must never disable the app: export runs
+      // whenever an image is loaded; undecodable stickers draw as a block.
+      const { blob, filename, degraded } = await exportImage(this.store.state, this.bitmaps, this.customBitmaps, mime, this.fallback);
       downloadBlob(blob, filename);
-      this.setExportStatus(`Saved ${filename} — metadata (EXIF/GPS) removed.`);
+      this.setExportStatus(
+        degraded
+          ? `Saved ${filename} — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no decoded bitmap and were exported as a shaded block.`
+          : `Saved ${filename} — metadata (EXIF/GPS) removed.`,
+      );
     } catch (err) {
       this.setExportStatus(`Export failed: ${err.message}`);
     }
@@ -640,7 +655,15 @@ function prevAspectOf(layout, image) {
   return 0;
 }
 
-// Bootstrap: one module entry, no framework.
-const app = new CanvasApp(document);
-window.__stickerface = app;
+// Bootstrap: one module entry, no framework. The singleton guard makes a
+// second import (or a second constructed instance on the same document)
+// impossible — a second one would double the picker and double every
+// canvas click handler, adding two stickers per click.
+let app = window.__stickerface ?? null;
+if (app instanceof CanvasApp) {
+  // Already booted; reuse the existing instance.
+} else {
+  app = new CanvasApp(document);
+  window.__stickerface = app;
+}
 export { app };

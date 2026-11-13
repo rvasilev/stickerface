@@ -34,10 +34,59 @@ export function cancelDraw() {
 }
 
 /**
+ * Raster fallback: draw an image that already exposes width/height onto a
+ * square canvas and take the bitmap from the canvas. Chromium refuses to
+ * decode a viewBox-only SVG straight from a Blob (no intrinsic size ->
+ * InvalidStateError), but an <img> element given an explicit width/height
+ * rasterizes fine, so this path succeeds where createImageBitmap(blob)
+ * cannot. Returns null instead of throwing when the image never decodes.
+ *
+ * @param {HTMLImageElement} img decoded image (width/height established)
+ * @param {number} size raster edge px
+ * @returns {Promise<ImageBitmap|null>}
+ */
+export async function bitmapFromImage(img, size) {
+  if (!img || !(img.naturalWidth > 0) || !(img.naturalHeight > 0)) return null;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, size, size);
+    return await createImageBitmap(canvas);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load a URL into a decoded <img> with an explicit display size. Nail the
+ * size down BEFORE decode() so a viewBox-only SVG gets intrinsic dimensions
+ * from the element attributes rather than from its (absent) root attributes.
+ *
+ * @param {string} src URL to load
+ * @param {number} [size] explicit width/height px (default 512)
+ * @returns {Promise<HTMLImageElement>} decoded image
+ */
+export async function loadImgWithSize(src, size = 512) {
+  const img = new Image();
+  img.width = size;
+  img.height = size;
+  img.src = src;
+  await img.decode();
+  return img;
+}
+
+/**
  * Pre-decode every emoji SVG once into an ImageBitmap. Drawing an <img> per
  * frame re-rasterizes the SVG on every paint, so the decode cost is paid
- * once at startup. Returns a Map keyed by sticker src, plus a `ready` flag
- * (export gates on it rather than throwing for a half-decoded catalogue).
+ * once at startup. The Twemoji SVGs carry only a viewBox and no width/
+ * height, so they have no intrinsic size and Chromium refuses to decode
+ * them straight from a Blob; each file is therefore loaded through an <img>
+ * with an explicit size, rasterized onto an offscreen canvas, and the
+ * bitmap taken from that canvas. A file that still fails is kept as its
+ * <img> element (a draw source) so export never blocks on it.
  *
  * @param {object} [opts]
  * @param {number} [opts.size] raster size for the bitmaps (default 512)
@@ -45,6 +94,7 @@ export function cancelDraw() {
  */
 export async function decodeEmojiBitmaps({ size = 512, concurrency = 8 } = {}) {
   const map = new Map();
+  const fallback = new Map();
   const queue = [...EMOJI];
   const jobs = [];
   const width = Math.max(64, Math.round(size));
@@ -52,13 +102,41 @@ export async function decodeEmojiBitmaps({ size = 512, concurrency = 8 } = {}) {
     while (queue.length) {
       const entry = queue.shift();
       try {
-        const res = await fetch(entry.path);
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        const bmp = await createImageBitmap(blob, { resizeWidth: width, resizeHeight: width, resizeQuality: 'high' });
-        map.set(entry.path, bmp);
+        const url = entry.path;
+        let img = null;
+        try {
+          img = await loadImgWithSize(url, width);
+        } catch {
+          img = null;
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const bmp = await createImageBitmap(blob, { resizeWidth: width, resizeHeight: width, resizeQuality: 'high' });
+          map.set(entry.path, bmp);
+          continue;
+        }
+        if (img && img.complete && (img.naturalWidth > 0 || img.width > 0)) {
+          if (typeof img.decode === 'function') {
+            try { await img.decode(); } catch { /* already decoded */ }
+          }
+          const bmp = await bitmapFromImage(img, width);
+          if (bmp) map.set(entry.path, bmp);
+          if (!bmp) fallback.set(entry.path, img);
+        } else {
+          fallback.set(entry.path, img);
+        }
       } catch {
-        // A missing/corrupt SVG is skipped; export stays gated until ready.
+        // A missing/corrupt SVG is skipped; export never blocks on it.
+        // Fall back to an undecoded placeholder so paint still covers the face.
+        try {
+          const img = new Image();
+          img.width = width;
+          img.height = width;
+          img.src = entry.path;
+          fallback.set(entry.path, img);
+        } catch {
+          // Nothing draw-able; paint() will use a solid placeholder.
+        }
       }
     }
   }
@@ -66,17 +144,59 @@ export async function decodeEmojiBitmaps({ size = 512, concurrency = 8 } = {}) {
   for (let i = 0; i < n; i++) jobs.push(worker());
   await Promise.all(jobs);
   const ready = map.size === EMOJI.length;
-  return { bitmaps: map, ready, loaded: map.size, total: EMOJI.length };
+  return { bitmaps: map, fallback, ready, loaded: map.size, total: EMOJI.length };
 }
 
 /**
  * Decode a user-supplied file/object URL into a bitmap at a good raster size.
+ * Uses the same <img> path as the emoji catalogue for the same reason.
  * @param {string|Blob} src object URL or Blob
  * @param {number} [size] target raster edge
  */
 export async function decodeCustomBitmap(src, size = 512) {
-  const blob = typeof src === 'string' ? await (await fetch(src)).blob() : src;
-  return createImageBitmap(blob, { resizeWidth: size, resizeHeight: size, resizeQuality: 'high' });
+  const url = typeof src === 'string' ? src : URL.createObjectURL(src);
+  const ownUrl = typeof src !== 'string';
+  try {
+    const img = await loadImgWithSize(url, size);
+    const bmp = await bitmapFromImage(img, size);
+    if (!bmp) throw new Error('decode failed');
+    return bmp;
+  } finally {
+    if (ownUrl) URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Solid placeholder draw: a sticker with no bitmap and no fallback image is
+ * still painted (solid square) so a missing asset degrades to a cosmetic
+ * block instead of silently leaving the face uncovered.
+ * Pure partition + draw decision — no throw on any sticker shape.
+ *
+ * @param {object[]} stickers normalized stickers
+ * @param {Map<string, ImageBitmap>} [bitmaps] emoji bitmaps by src
+ * @param {Map<string, HTMLImageElement>} [fallback] img fallbacks by src
+ * @param {Map<string, ImageBitmap>} [customBitmaps] user-image bitmaps by src
+ * @returns {{withBitmap: object[], withFallback: object[], withPlaceholder: object[]}}
+ */
+export function partitionStickers(stickers, bitmaps, fallback, customBitmaps) {
+  const withBitmap = [];
+  const withFallback = [];
+  const withPlaceholder = [];
+  for (const sticker of stickers ?? []) {
+    if (sticker.kind === 'blur' || sticker.kind === 'mosaic') {
+      withBitmap.push(sticker);
+      continue;
+    }
+    const bmp = bitmaps?.get(sticker.src) ?? customBitmaps?.get(sticker.src);
+    if (bmp) {
+      withBitmap.push(sticker);
+    } else if (fallback?.get(sticker.src)) {
+      withFallback.push(sticker);
+    } else {
+      withPlaceholder.push(sticker);
+    }
+  }
+  return { withBitmap, withFallback, withPlaceholder };
 }
 
 
@@ -98,11 +218,15 @@ function roundedRectPath(ctx, x, y, w, h, radiusPx) {
 }
 
 /**
- * Draw one emoji/custom sticker under translate/rotate.
+ * Draw one emoji/custom sticker under translate/rotate. The draw source may
+ * be an ImageBitmap, an HTMLImageElement (fallback) or a solid placeholder —
+ * a missing asset is a cosmetic block, never a skipped sticker — so this
+ * never throws and always paints (false only for a degenerate 0-size rect).
  */
-function drawEmoji(ctx, sticker, bitmap, imgW, imgH, scale, customBitmaps) {
+function drawEmoji(ctx, sticker, bitmap, imgW, imgH, scale, customBitmaps, fallbackImg) {
   const bmp = bitmap ?? (sticker.kind === 'emoji' ? null : customBitmaps?.get(sticker.src));
-  if (!bmp) return false;
+  const img = !bmp && sticker.kind === 'emoji' ? fallbackImg ?? null : null;
+  const src = bmp ?? img;
   const rect = stickerRect(sticker, imgW, imgH);
   const wPx = rect.w * scale;
   const hPx = rect.h * scale;
@@ -110,13 +234,20 @@ function drawEmoji(ctx, sticker, bitmap, imgW, imgH, scale, customBitmaps) {
   ctx.save();
   ctx.translate((rect.x + rect.w / 2) * scale, (rect.y + rect.h / 2) * scale);
   ctx.rotate(sticker.rot ?? 0);
+  if (!src) {
+    // Placeholder: solid square covering the face instead of nothing.
+    ctx.fillStyle = '#f5c542';
+    ctx.fillRect(-wPx / 2, -hPx / 2, wPx, hPx);
+    ctx.restore();
+    return true;
+  }
   // drawImage stretches to the box; keep the source aspect (letterbox fit).
-  const sw = bmp.width ?? bmp.naturalWidth;
-  const sh = bmp.height ?? bmp.naturalHeight;
+  const sw = src.width ?? src.naturalWidth;
+  const sh = src.height ?? src.naturalHeight;
   const fit = Math.min(wPx / sw, hPx / sh);
   const dw = sw * fit;
   const dh = sh * fit;
-  ctx.drawImage(bmp, -dw / 2, -dh / 2, dw, dh);
+  ctx.drawImage(src, -dw / 2, -dh / 2, dw, dh);
   ctx.restore();
   return true;
 }
@@ -311,6 +442,8 @@ function boxBlurScratch(baseCanvas, rx, ry, rw, rh, dx, dy, dw, dh) {
  * @param {HTMLImageElement} opts.image base image (naturalWidth/Height)
  * @param {object[]} opts.stickers normalized stickers (already z-sorted)
  * @param {Map<string, ImageBitmap>} opts.bitmaps emoji bitmaps by src
+ * @param {Map<string, HTMLImageElement>} [opts.fallback] img fallbacks by src
+ *   (stickers with no bitmap draw from here, else a solid placeholder)
  * @param {Map<string, ImageBitmap>} [opts.customBitmaps] user-image bitmaps by src
  * @param {number} opts.imgW natural image width
  * @param {number} opts.imgH natural image height
@@ -319,7 +452,7 @@ function boxBlurScratch(baseCanvas, rx, ry, rw, rh, dx, dy, dw, dh) {
  * @param {object} [opts.selection] {id} — draws the selection chrome in ui.js,
  *   never here (keep render dumb).
  */
-export function paint(ctx, { image, stickers, bitmaps, customBitmaps, imgW, imgH, scale, baseCanvas }) {
+export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, imgW, imgH, scale, baseCanvas }) {
   ctx.save();
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.restore();
@@ -347,9 +480,9 @@ export function paint(ctx, { image, stickers, bitmaps, customBitmaps, imgW, imgH
 
   for (const sticker of stickers ?? []) {
     if (sticker.kind === 'emoji') {
-      drawEmoji(ctx, sticker, bitmaps?.get(sticker.src), imgW, imgH, scale, customBitmaps);
+      drawEmoji(ctx, sticker, bitmaps?.get(sticker.src), imgW, imgH, scale, customBitmaps, fallback?.get(sticker.src));
     } else if (sticker.kind === 'custom') {
-      drawEmoji(ctx, sticker, null, imgW, imgH, scale, customBitmaps);
+      drawEmoji(ctx, sticker, null, imgW, imgH, scale, customBitmaps, fallback?.get(sticker.src));
     } else if (sticker.kind === 'blur') {
       drawBlur(ctx, sticker, base, imgW, imgH, scale);
     } else if (sticker.kind === 'mosaic') {
