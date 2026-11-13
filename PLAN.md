@@ -242,6 +242,42 @@ plus a real `Ctrl+Z`, measured from canvas pixels:
 `undoRestoresDeletedSticker`, `doubleClickDeletesSecondSticker`,
 `doubleClickOnEmptyLeavesNoSticker`, `twoStickersPlaced`.
 
+### Two-finger image pinch-zoom (M7)
+
+Requested 2026-11-13: *"image should be able to zoom with two fingers pinch"*.
+Supersedes the earlier "pinch-zoom stays backlog" note.
+
+Two fingers whose centroid is **outside** the selected sticker's frame pan **and
+zoom the photo** (the same gesture as M5's pan, now with scale):
+
+- `view = { dx, dy, scale }` — one object, `scale: 1` = fit-to-viewport, clamped to
+  **1 … 8**. Zoom about the **gesture centroid**: the image point under the centroid
+  must not move (focal zoom). Compute from the gesture's start distance and start
+  scale (`k = dist / startDist`, `scale = startScale * k`), never accumulate per
+  event, and derive `dx/dy` so the focal point stays fixed.
+- Clamp the offsets so the photo cannot be pushed out of view: when
+  `scale * canvasCSSWidth >= canvasCSSWidth` clamp `dx` to
+  `[canvasW - scaledW, 0]`, otherwise centre that axis (same for `y`).
+- **Zoom is view-only.** It must never touch sticker geometry (normalized
+  coordinates stay as they are), never enter the undo stack, and never change the
+  export: the exported file is composited at natural size from normalized state, so
+  the sticker's relative position in the export is identical at 1× and at 5×.
+- The one projection carries the scale:
+  `cssPoint = canvasRect.origin + backingPoint * previewScale * view.scale + view.dx/dy`.
+  The selection frame, handles and hit-testing all use it, so the frame still wraps
+  the sticker at any zoom, and a sticker drag at 4× moves it by the right amount.
+- Reset to fit when a new photo loads (`fitView()`); an explicit "reset zoom" button
+  is backlog. A pinch whose centroid is inside the sticker frame is M6's sticker
+  transform and must not change the view.
+
+Gate: `tests/e2e/zoom-probe.js` (390×844 touch device, real CDP touch, measured
+from canvas pixels and from the exported PNG): `pinchZoomsImage`,
+`pinchZoomsAboutFocalPoint`, `pinchClampsZoomRange`, `pinchClampsMinZoom`,
+`selectionFrameTracksZoom`, `zoomDoesNotAddStickers`, `stickersStillDrawnAtZoom`,
+`exportUnaffectedByZoom`, `pointersCleanAfterZoom`. Baseline before the work:
+**3/9** — two fingers only pan (zoomRatio 1.00), and the criteria that would pass
+vacuously are guarded on the zoom having actually happened.
+
 ### Export
 
 `export.js`: fresh canvas at natural size → draw base → draw each sticker with
@@ -318,6 +354,7 @@ highest-value manual-mode feature: a family photo set is 10 near-identical shots
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
 | **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `scripts/e2e-mobile.sh` = 9/9, desktop probes still green | **done** (2026-11-13; the probe's 10th criterion, double-tap delete, belongs to the next item) |
 | **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 8/8, M5 gate still green | **spec'd, not started** |
+| **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **spec'd, not started** (baseline 3/9) |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so

@@ -253,6 +253,12 @@ async def main(probe_path, url_match="8123"):
                         del active_ids[len(pts):]
                     await asyncio.sleep(float(step.get("ms", 60)) / 1000)
                 await asyncio.sleep(0.5)
+                # Optional post-gesture hook (e.g. an export whose result the
+                # reader needs) must run before the reader.
+                await send("Runtime.evaluate", {
+                    "expression": "window.__sfFinishZoom ? window.__sfFinishZoom() : null",
+                    "awaitPromise": True, "returnByValue": True, "timeout": 30000,
+                })
                 read3 = await send("Runtime.evaluate", {
                     "expression": "window.__sfReadTouch ? window.__sfReadTouch() : null",
                     "awaitPromise": True, "returnByValue": True, "timeout": 20000,
