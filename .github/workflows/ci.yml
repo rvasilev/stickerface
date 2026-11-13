@@ -1,0 +1,70 @@
+name: CI
+
+# The repo's definition of done is "unit gate + browser gate both green". Until
+# now nothing enforced that on push (PLAN's M3 said "done, except CI"), so a
+# broken build could sit on main unnoticed.
+#
+# Scope note: only gates that are GREEN at this commit run here. The touch gate
+# (scripts/e2e-mobile.sh), tap-after-pan, sticker-transform (M6) and zoom (M7)
+# probes are knowingly red while those features are being implemented; a CI that
+# fails for known reasons trains people to ignore it. Add each one here in the
+# same commit that makes it green.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Chrome
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Install dev dependencies
+        # This repository's dev box exports NODE_ENV=production, which makes npm
+        # skip devDependencies entirely (vitest missing, no lint tooling). Pin it.
+        run: NODE_ENV=development npm install --include=dev
+
+      - name: Install the CDP driver's dependency
+        # tests/e2e/run.py speaks the DevTools WebSocket through `websockets`;
+        # it is present on the dev box but not on a stock runner image.
+        run: python3 -m pip install --user websockets
+
+      - name: Unit gate
+        run: npm test
+
+      - name: Acceptance gate — the user journey (upload → stickers → export)
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+        run: npm run e2e
+
+      - name: Gate — selection frame wraps the drawn sticker
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          E2E_PROBE: tests/e2e/selection-probe.js
+        run: bash scripts/e2e.sh
+
+      - name: Gate — double-click deletes a sticker
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          E2E_PROBE: tests/e2e/delete-probe.js
+        run: bash scripts/e2e.sh
+
+      - name: Gate — selection handles are small with a finger-sized hit area
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+          E2E_MOBILE: "1"
+          E2E_PROBE: tests/e2e/handles-probe.js
+        run: bash scripts/e2e.sh

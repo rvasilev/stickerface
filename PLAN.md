@@ -371,7 +371,7 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M0** | repo, README, LICENSE, index.html canvas, image upload, draggable emoji sticker | upload → drag → export PNG | **done** |
 | **M1** | handles + rotate, undo, layer list, blur + mosaic kinds, full-res export, keyboard | `npm test` + browser probe green | **done** (after the decode fix) |
 | **M2** | emoji picker (curated Twemoji set), custom image sticker, "same layout next photo" | probe + manual batch of 3 photos | **done**; batch flow needs a manual pass |
-| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 15/15 + `selection-probe` 6/6, exit 0 | **done**, except CI |
+| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 23/23 + the other green probes, exit 0; CI workflow on push | **done** (CI added 2026-11-13) |
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
 | **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `scripts/e2e-mobile.sh` = 9/9, desktop probes still green | **done** (2026-11-13; the probe's 10th criterion, double-tap delete, belongs to the next item) |
 | **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 8/8, M5 gate still green | **spec'd, not started** |
@@ -420,6 +420,30 @@ It is a real browser, a real file upload and real pixel assertions — see
   `ev.target.dataset.handle` undefined.
 - Recurring lesson, recorded in `AGENTS.md` and `docs/AGENT-WORKFLOW.md`: a green
   unit suite is not the app working.
+- **2026-11-13** — audit pass. Findings and fixes:
+  - **CI did not exist** while the definition of done demanded two green gates →
+    `.github/workflows/ci.yml` runs unit + the green browser gates on push/PR.
+  - **No ad-hoc runner for other probes** — the interaction gates could only be
+    started from a scratch script in `/tmp`, so they were not reproducible from a
+    clean clone → `scripts/e2e.sh` now takes `E2E_PROBE=<path>` and `E2E_MOBILE=1`.
+  - **`.nojekyll` held prose** (196 bytes) instead of being empty; the explanation
+    moved into `docs/VERIFICATION.md`.
+  - **`.gitignore` missed `.code-review-graph/` and `coverage/`** — a generated
+    tool directory sitting untracked in the tree is one `git add -A` from being
+    committed.
+  - **`package.json` still advertised blur/mosaic** in its description after those
+    tools were disabled; scripts/metadata/description updated (`e2e:mobile` added).
+  - **Docs drift**: `docs/VERIFICATION.md` still described one gate, "drops an emoji,
+    a blur patch and a mosaic patch" and `12/12 passed`; `docs/AGENT-WORKFLOW.md`
+    quoted the same stale count. Both rewritten around the real gate inventory,
+    the input-plan protocol, and the two verification disciplines learned here
+    (isolated-tree attribution, non-vacuous criteria).
+  - Verified **clean, not broken**: `run.py` already exits 1 when a probe emits no
+    criteria, and `scripts/e2e.sh` already propagates the probe's exit code — both
+    are the "gate passes when it verified nothing" class, and both were sound.
+  - Outstanding by design: the touch gate (pointer leak + double-tap) is red and
+    `tap-after-pan` with it; M6/M7 probes are red until those features exist. CI
+    runs only the green set and says so.
 
 ## Acceptance criteria for M1 (what "done" means)
 

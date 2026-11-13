@@ -29,7 +29,8 @@ A packet is a text file passed to the coding agent. It works when it contains:
 - **Non-negotiables** — the invariants from AGENTS.md, repeated inline (the agent
   may not read them).
 - **The gate** — the exact commands it must run and paste, and the exact pass
-  condition (`12/12 passed`, `E2E_EXIT=0`).
+  condition (`N/M passed`, `E2E_EXIT=0`). Name the probe if it is not the main one:
+  `E2E_PROBE=tests/e2e/<probe>.js npm run e2e`.
 - **Honesty clause** — "if you cannot start headless Chrome, say so; do not claim
   a passing probe you did not run".
 
@@ -84,6 +85,21 @@ grep -aE "^(OC_EXIT|VERIFY_EXIT)=" /tmp/x.out             # outcomes
   against `https://rvasilev.github.io/stickerface/` with a second Chrome
   (`CDP_HTTP=... run.py probe.js github.io`). A Pages build can be stale or fail
   silently.
+- **Never `git add -A` while a delegated agent is writing to the tree.** Two of this
+  repo's commits were labelled as doc/test changes but contained the agent's
+  in-flight app code, because `git add -A` swept the working tree. Stage explicit
+  paths once an agent is running; if you already committed, rewrite the boundaries
+  (`git reset --mixed <base>` then re-stage per change) before pushing.
+- **Attribute a local failure before fixing it.** A tree an agent is mid-edit on
+  produces failures that belong to *its* unfinished work — running the gates there
+  and blaming your own change is the classic false attribution. Rebuild a clean tree
+  at HEAD (`git archive HEAD | tar -x -C /tmp/sf-head`), copy in only the files you
+  changed, and run the gates there.
+- **A gate must fail when it verified nothing.** `run.py` returns 1 when a probe
+  emits no criteria at all; keep it that way. The same trap in a criterion reads as
+  PASS for "nothing happened" — guard every criterion on the action having occurred
+  (three zoom criteria passed vacuously until they were guarded on the zoom
+  actually happening).
 
 ## What to do with what you learn
 

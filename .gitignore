@@ -4,3 +4,5 @@ node_modules/
 .opencode/
 test-results/
 playwright-report/
+coverage/
+.code-review-graph/

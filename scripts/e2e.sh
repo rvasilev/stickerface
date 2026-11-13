@@ -2,19 +2,25 @@
 # Self-contained acceptance gate: serve the repo, start headless Chrome, run the
 # browser probe, tear everything down. Zero manual steps.
 #
-#   ./scripts/e2e.sh                     # against the working tree
-#   ./scripts/e2e.sh https://example.com # against a deployed URL (skips the server)
+#   ./scripts/e2e.sh                          # the user journey, working tree
+#   ./scripts/e2e.sh https://example.com      # against a deployed URL (skips the server)
+#   E2E_PROBE=tests/e2e/delete-probe.js ./scripts/e2e.sh   # any probe, same harness
+#
+# Any probe in tests/e2e/ can be run through this script -- no ad-hoc runner in
+# /tmp is needed, which is what made these gates reproducible from a clean clone.
 #
 # Exit code is the probe's: 0 = every criterion passed.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET="${1:-}"
+PROBE="${E2E_PROBE:-tests/e2e/probe.js}"
 HTTP_PORT="${HTTP_PORT:-8123}"
 CDP_PORT="${CDP_PORT:-9222}"
 CHROME_BIN="${CHROME_BIN:-$(command -v google-chrome-stable || command -v chromium || command -v chromium-browser)}"
 PROFILE="$(mktemp -d /tmp/sf-chrome-XXXXXX)"
 
+[ -f "$REPO/$PROBE" ] || { echo "e2e: probe not found: $PROBE" >&2; exit 2; }
 [ -x "$CHROME_BIN" ] || { echo "e2e: no Chrome/Chromium found (set CHROME_BIN)" >&2; exit 2; }
 [ -f "$REPO/tests/e2e/fixture.jpg" ] || python3 "$REPO/scripts/make-fixture.py"
 
@@ -55,8 +61,9 @@ for _ in $(seq 1 40); do
 done
 sleep 1.5   # let the app boot before the probe reloads it
 
-echo "e2e: target=$TARGET cdp=$CDP_PORT"
-( cd "$REPO" && CDP_HTTP="http://127.0.0.1:${CDP_PORT}" python3 tests/e2e/run.py tests/e2e/probe.js "$MATCH" )
+echo "e2e: target=$TARGET probe=$PROBE cdp=$CDP_PORT mobile=${E2E_MOBILE:-0}"
+( cd "$REPO" && E2E_MOBILE="${E2E_MOBILE:-0}" CDP_HTTP="http://127.0.0.1:${CDP_PORT}" \
+    python3 tests/e2e/run.py "$PROBE" "$MATCH" )
 CODE=$?
 echo "E2E_EXIT=$CODE"
 exit $CODE

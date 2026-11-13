@@ -1,8 +1,10 @@
 # StickerFace
 
-Put a sticker on it. Hide faces in a photo with an emoji, a blur patch or a
-mosaic patch — **entirely in your browser**. No upload, no account, no install,
-no telemetry. Works on Linux, macOS, Windows and phones.
+[![CI](https://github.com/rvasilev/stickerface/actions/workflows/ci.yml/badge.svg)](https://github.com/rvasilev/stickerface/actions/workflows/ci.yml)
+
+Put a sticker on it. Hide faces in a photo with an emoji sticker — **entirely in
+your browser**. No upload, no account, no install, no telemetry. Works on Linux,
+macOS, Windows and phones.
 
 An open-source replacement for tools like Ashampoo Face Blur, built on the
 manual-first principle: the app never refuses to open your photo just because a
