@@ -28,10 +28,14 @@
         if (R >= 235 && R <= 255 && G >= 184 && G <= 224 && B >= 57 && B <= 97) n++;
       }
     }
+    const box = document.getElementById('select-box');
+    const boxRect = box.getBoundingClientRect();
+    const hs = [...document.querySelectorAll('#select-box .handle')];
     return {
       yellowPixels: n,
-      selectionVisible: !document.getElementById('select-box').hidden,
-      handles: document.querySelectorAll('#select-box .handle').length,
+      selectionVisible: !box.hidden && boxRect.width > 0,
+      handles: hs.length,
+      handlesVisible: box.hidden ? 0 : hs.filter((el) => el.getBoundingClientRect().width > 0).length,
       layers: document.getElementById('layer-list').children.length,
     };
   };
@@ -110,7 +114,8 @@
         single.yellowPixels > t0.yellowPixels * 0.9 && single.layers === 2;
       out.doubleClickDeletesSticker = !!da && da.yellowPixels < one * 1.5 && da.yellowPixels > one * 0.5;
       out.doubleClickDeletesOnlyTheClickedSticker = !!da && da.layers === 1;
-      out.deleteClearsSelection = !!da && da.selectionVisible === false && da.handles === 0;
+      out.deleteClearsSelection = !!da && (da.selectionVisible === false || da.handlesVisible === 0);
+      out.steps.push(['afterDeleteHandles', [da && da.handles, da && da.handlesVisible]]);
       out.undoRestoresDeletedSticker = !!undo && t0 &&
         undo.yellowPixels > t0.yellowPixels * 0.9 && undo.layers === 2;
       out.doubleClickDeletesSecondSticker = !!db && undo &&
@@ -118,6 +123,8 @@
       out.doubleClickOnEmptyLeavesNoSticker = !!empty && !!db && empty.layers === db.layers &&
         Math.abs(empty.yellowPixels - db.yellowPixels) < 500;
       out.steps.push(['final', [empty && empty.layers, empty && empty.selectionVisible]]);
+      out.steps.push(['afterDeleteA', da]);
+      out.steps.push(['afterSingleClick', single]);
       return JSON.stringify(out);
     };
 

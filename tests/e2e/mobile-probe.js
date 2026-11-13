@@ -41,6 +41,7 @@
       w: (ymaxX - yminX + 1) * sx, h: (ymaxY - yminY + 1) * sy,
     };
     box.canvasLeft = rect.left; box.canvasTop = rect.top;
+    box.pointers = canvas.dataset.pointers === undefined ? null : Number(canvas.dataset.pointers);
     return box;
   };
 
@@ -81,6 +82,7 @@
 
     const imgDx = 60, imgDy = 40;      // two-finger pan delta
     const stickerDx = 50, stickerDy = 30; // one-finger drag delta
+    const DOT = [rect.left + rect.width * 0.18, rect.top + rect.height * 0.82]; // clear of the first sticker
 
     window.__sfNextInput = [
       { t: 'read', name: 't0' },
@@ -105,10 +107,15 @@
       ...move([[cx + stickerDx, cy + stickerDy], [cx + stickerDx + 70, cy + stickerDy + 50]], 40, 40),
       { t: 'touchEnd', pts: [], ms: 250 },
       { t: 'read', name: 'afterInterrupt' },
-      // 5) double-tap on the sticker removes it (two taps inside the window)
-      { t: 'touchStart', pts: [[cx, cy]], ms: 60 },
+      // 5) tap an empty spot to place a fresh sticker, then double-tap THAT spot:
+      //    targeting the sticker we just placed removes the coordinate guesswork
+      //    (the first sticker has drifted with the image by now).
+      { t: 'touchStart', pts: [DOT], ms: 70 },
+      { t: 'touchEnd', pts: [], ms: 260 },
+      { t: 'read', name: 'afterTapForDelete' },
+      { t: 'touchStart', pts: [DOT], ms: 70 },
       { t: 'touchEnd', pts: [], ms: 70 },
-      { t: 'touchStart', pts: [[cx, cy]], ms: 60 },
+      { t: 'touchStart', pts: [DOT], ms: 70 },
       { t: 'touchEnd', pts: [], ms: 260 },
       { t: 'read', name: 'afterDoubleTap' },
     ];
@@ -146,8 +153,15 @@
       out.steps.push(['interruptImageShift', shift(pan && pan.red, interrupt && interrupt.red)]);
 
       const dt = s.afterDoubleTap;
-      out.doubleTapDeletesSticker = !!dt && !!interrupt &&
-        dt.yellowPixels < Math.max(200, interrupt.yellowPixels * 0.05);
+      const pre = s.afterTapForDelete;
+      out.tapPlacesSecondSticker = !!dt && !!pre && pre.yellowPixels > (interrupt && interrupt.yellowPixels || 0) * 1.5;
+      out.doubleTapDeletesSticker = !!dt && !!pre &&
+        dt.yellowPixels < Math.max(200, pre.yellowPixels * 0.62);
+      const pcounts = ['tap', 'oneFingerDrag', 'twoFingerPan', 'interrupt', 'tapForDelete', 'doubleTap']
+        .map((k) => [k, (s['after' + k[0].toUpperCase() + k.slice(1)] || {}).pointers]);
+      out.pointersCleanAfterGestures = pcounts.every(([, n]) => n === 0);
+      out.steps.push(['pointerCounts', pcounts]);
+      out.steps.push(['afterTapForDelete', pre]);
       out.steps.push(['afterDoubleTap', dt]);
       return JSON.stringify(out);
     };

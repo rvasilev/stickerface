@@ -161,6 +161,11 @@ Rules:
   cancelled by a second finger — otherwise a pan attempt drops stickers.
 - `touch-action: none` stays on the canvas and its overlay only, so the page still
   scrolls everywhere else.
+- **No contact may stay tracked after it lifts.** After every gesture ends, the live
+  pointer count must be zero. The count is exposed as `canvas.dataset.pointers` so a
+  leak is measurable: a stale entry makes the next one-finger tap look like the
+  second finger of a pan, which silently kills tap-to-place (observed after a
+  cancelled drag: tap 2 placed, tap 3 did nothing).
 - The handles are touch targets too: each needs a hit area ≥ 32 CSS px and must not
   throw when driven by a touch (`resizeRect: unknown handle "undefined"` was an
   uncaught exception under touch emulation).
@@ -204,6 +209,9 @@ Gate: `scripts/e2e-mobile.sh` — emulated 390×844 touch device, real CDP touch
 events, verified from canvas pixels (`tests/e2e/mobile-probe.js`): tap places, one
 finger moves the sticker without moving the image, two fingers pan the image
 without moving/resizing/adding a sticker, and a second finger cancels a drag.
+`tests/e2e/tap-after-pan-probe.js` localises pointer-bookkeeping regressions
+(place → pan → cancelled drag → tap must still place, and the pointer count must
+return to zero).
 
 ### Remove a sticker (double-click / double-tap)
 

@@ -169,6 +169,21 @@ async def main(probe_path, url_match="8123"):
             except Exception:
                 steps = None
             if steps:
+                # Real browsers give every touch contact a unique, monotonically
+                # increasing pointerId. Handing out 0/1 again for each gesture
+                # lets a second gesture reuse an id the app may still believe is
+                # down, which reads as "two fingers" forever -- a harness artifact
+                # that would blame the app for the probe's own bookkeeping.
+                next_touch_id = 100
+                active_ids = []
+
+                def ids_for(n):
+                    nonlocal next_touch_id
+                    while len(active_ids) < n:
+                        active_ids.append(next_touch_id)
+                        next_touch_id += 1
+                    return active_ids[:n]
+
                 for step in steps:
                     kind = step.get("t")
                     pts = step.get("pts") or []
@@ -226,8 +241,8 @@ async def main(probe_path, url_match="8123"):
                         await asyncio.sleep(float(step.get("ms", 80)) / 1000)
                         continue
                     touch_points = [
-                        {"x": p[0], "y": p[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": i}
-                        for i, p in enumerate(pts)
+                        {"x": p[0], "y": p[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": pid}
+                        for pid, p in zip(ids_for(len(pts)), pts)
                     ]
                     if kind == "touchStart":
                         await send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": touch_points})
@@ -235,6 +250,7 @@ async def main(probe_path, url_match="8123"):
                         await send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": touch_points})
                     elif kind == "touchEnd":
                         await send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": touch_points})
+                        del active_ids[len(pts):]
                     await asyncio.sleep(float(step.get("ms", 60)) / 1000)
                 await asyncio.sleep(0.5)
                 read3 = await send("Runtime.evaluate", {
