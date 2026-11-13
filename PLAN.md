@@ -415,6 +415,25 @@ It is a real browser, a real file upload and real pixel assertions — see
   two rows to swap, which is backwards against a topmost-first list — kept as
   written, not weakened, and reported. Unit: 119/119 (was 114).
 
+- **2026-11-14 (verification)** — the layers packet was verified externally, and
+  both reds above were the GATE's fault, not the app's. The agent was right about
+  the pixel predicate and correctly left the frozen probe alone; the oracle is now
+  threshold-free: `layers-probe.js` measures each square's rendered colour first
+  (each with its sticker alone) and compares against those references, with a
+  `refsDistinct` guard. Restated, measured by me: desktop **7/8** (only
+  `dragWorksWithTouch`, which needs touch input) and mobile **8/8**, console
+  `(none)`; every other gate at its previous count; unit 119. Falsified:
+  commenting out the `z` renumber in `moveTo` takes `layers-probe` to **4/8** with
+  `dragReordersPixels` reading `before: white, after: white` — the DOM restacks
+  while the canvas does not, which is what the pixel criterion exists to catch.
+  `probe.js`'s `reorderReachesLayerList` was updated to the topmost-first
+  convention (its intent is unchanged) and GAINED a direct-`moveTo` half, because
+  the original click half was insensitive: clicking ⤴ bubbles to the row, fires
+  `select`, and `select` rebuilds the list on its own — flipping the store's
+  `reorder` event to `change` left it green. With the extra half it goes red
+  (`26/27`). Both probes are wired into CI (the layers gate in both desktop and
+  mobile steps), which the packet's DoD required and the run did not deliver.
+
 - **2026-11-14** — the rotate handle snapped the sticker 90° counter-clockwise on
   the first move of a drag. The cause was structural, not a typo: the handle sits
   above the sticker's centre, so the pointer's ABSOLUTE angle there is −90°, and

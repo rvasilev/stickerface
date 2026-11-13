@@ -188,18 +188,35 @@
     await sleep(200);
     const rowsBeforeReorder = rowLabels();
     const n = rowsBeforeReorder.length;
-    const distinctLabels = n >= 2 && rowsBeforeReorder[n - 1] !== rowsBeforeReorder[n - 2];
-    // Bring the SECOND-TO-BOTTOM row forward (the bottom one is already on top):
-    // the last two rows must SWAP.
+    const distinctLabels = n >= 2 && rowsBeforeReorder[0] !== rowsBeforeReorder[1];
+    // The list reads TOPMOST-FIRST, so the FIRST row is the top sticker: bringing
+    // the SECOND row forward must move that row UP into slot 0, i.e. the first two
+    // rows swap. This criterion used to click row n-2 and expect a swap with the
+    // LAST row — the bottom-first convention the list deliberately stopped using.
     const rowEls = [...document.querySelectorAll('#layer-list .layer-row')];
-    rowEls[n - 2].querySelector('button[title^="Bring forward"]').click();
+    rowEls[1].querySelector('button[title^="Bring forward"]').click();
     await sleep(250);
     const rowsAfterReorder = rowLabels();
+    // Second half, direct: moveTo with NO selection change, so only the store's own
+    // reorder event can rebuild the list. The click above bubbles to the row and
+    // fires `select`, which rebuilds the list anyway — verified: changing the
+    // event type to 'change' left the click half GREEN, so this half is the one
+    // that catches a reorder that never reaches the list.
+    const selectedLabel = () => {
+      const row = document.querySelector('#layer-list .layer-row[aria-selected="true"]');
+      return row ? row.querySelector('.label').textContent.trim() : null;
+    };
+    const mine = selectedLabel();
+    app.store.moveTo(app.store.state.selection, 0); // array index 0 = bottom = LAST row
+    await sleep(250);
+    const afterDirect = rowLabels();
+    const movedToBottom = !!mine && afterDirect[afterDirect.length - 1] === mine;
     r.reorderReachesLayerList = distinctLabels && rowsAfterReorder.length === n &&
-      rowsAfterReorder[n - 1] === rowsBeforeReorder[n - 2] &&
-      rowsAfterReorder[n - 2] === rowsBeforeReorder[n - 1];
-    log('rowsBeforeReorder', rowsBeforeReorder.slice(-2));
-    log('rowsAfterReorder', rowsAfterReorder.slice(-2));
+      rowsAfterReorder[0] === rowsBeforeReorder[1] &&
+      rowsAfterReorder[1] === rowsBeforeReorder[0] && movedToBottom;
+    log('rowsBeforeReorder', rowsBeforeReorder.slice(0, 2));
+    log('rowsAfterReorder', rowsAfterReorder.slice(0, 2));
+    log('rowsAfterDirectMoveTo', afterDirect.slice(-2));
 
     log('done', true);
   } catch (e) {

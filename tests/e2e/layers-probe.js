@@ -72,20 +72,45 @@
     const h = (w * imgW) / imgH;
     const CX = 0.4;
     const CY = 0.45;
+
+    // Each square's REAL rendered colour, read with that sticker ALONE — no
+    // hardcoded threshold. Twemoji's 2b1b renders (49,55,61) and 2b1c
+    // (230,231,232): a channel-wise "< 60" test called the first one "other", and
+    // an oracle that cannot name the colour it just drew is the oracle's bug, not
+    // the app's. A measured reference also cannot drift if Twemoji ships a
+    // different shade.
+    const pixelRGB = () => {
+      const d = ctx.getImageData(Math.round(CX * canvas.width), Math.round(CY * canvas.height), 1, 1).data;
+      return [d[0], d[1], d[2]];
+    };
+    const probeColour = async (src) => {
+      const st = app.store.add({ kind: 'emoji', src, cx: CX, cy: CY, w, h });
+      app._draw();
+      await sleep(250);           // the paint is rAF-coalesced: read after a frame
+      const rgb = pixelRGB();
+      app.store.remove(st.id);
+      app._draw();
+      await sleep(150);
+      return rgb;
+    };
+    const REF = { black: await probeColour(BLACK), white: await probeColour(WHITE) };
+    const meanOf = (c) => (c[0] + c[1] + c[2]) / 3;
+    // Guard: if the two references were ever indistinguishable, "the pixel
+    // changed" would prove nothing — so the criteria require this too.
+    const refsDistinct = Math.abs(meanOf(REF.black) - meanOf(REF.white)) > 60;
+    const sameAs = (rgb, ref) => !!(rgb && ref) && rgb.every((v, i) => Math.abs(v - ref[i]) <= 8);
+    const pixelClass = () => {
+      const rgb = pixelRGB();
+      if (sameAs(rgb, REF.white)) return 'white';
+      if (sameAs(rgb, REF.black)) return 'black';
+      return `other(${rgb.join(',')})`;
+    };
+
     const black = app.store.add({ kind: 'emoji', src: BLACK, cx: CX, cy: CY, w, h });
     const white = app.store.add({ kind: 'emoji', src: WHITE, cx: CX, cy: CY, w, h });
     const third = app.store.add({ kind: 'emoji', src: THIRD, cx: 0.74, cy: 0.45, w, h });
     app._draw();
     await sleep(400);
-
-    const pixelClass = () => {
-      const x = Math.round(CX * canvas.width);
-      const y = Math.round(CY * canvas.height);
-      const d = ctx.getImageData(x, y, 1, 1).data;
-      if (d[0] > 200 && d[1] > 200 && d[2] > 200) return 'white';
-      if (d[0] < 60 && d[1] < 60 && d[2] < 60) return 'black';
-      return `other(${d[0]},${d[1]},${d[2]})`;
-    };
 
     const forwardBtn = (i) => {
       const row = rowsEls()[i];
@@ -244,6 +269,7 @@
       const t0 = at('t0');
       out.topmostIsFirstRow = !!(t0 && t0.labels[0] === LABEL[THIRD] && t0.labels[2] === LABEL[BLACK]);
       out.steps.push(['rows_t0', labelsOf('t0')]);
+      out.steps.push(['colour_refs', { black: REF.black, white: REF.white, distinct: refsDistinct }]);
 
       // The arrow must move the ROW UP the screen. This is the criterion that
       // fails while the list is still rendered bottom-first: raising the second
@@ -275,7 +301,7 @@
       // Pixels, not state: white painted over black before, black over white after.
       const d0 = at('beforeDrag');
       const d1 = at('afterDrag');
-      out.dragReordersPixels = !!(d0 && d1 && d0.pixel === 'white' && d1.pixel === 'black');
+      out.dragReordersPixels = !!(refsDistinct && d0 && d1 && d0.pixel === 'white' && d1.pixel === 'black');
       out.steps.push(['drag_pixels', { before: d0 && d0.pixel, after: d1 && d1.pixel,
         rowsBefore: labelsOf('beforeDrag'), rowsAfter: labelsOf('afterDrag') }]);
 
@@ -300,7 +326,7 @@
 
       const tb = at('beforeTouchDrag');
       const t1 = at('afterTouchDrag');
-      out.dragWorksWithTouch = !!(tb && t1 && tb.pixel === 'white' && t1.pixel === 'black' && changed(tb, t1));
+      out.dragWorksWithTouch = !!(refsDistinct && tb && t1 && tb.pixel === 'white' && t1.pixel === 'black' && changed(tb, t1));
       out.steps.push(['touch_drag', { before: tb && tb.pixel, after: t1 && t1.pixel,
         rowsBefore: labelsOf('beforeTouchDrag'), rowsAfter: labelsOf('afterTouchDrag') }]);
       return JSON.stringify(out);

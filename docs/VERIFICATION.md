@@ -32,8 +32,8 @@ probe must never read as success).
 
 | Probe | Criteria | State |
 |---|---|---|
-| `probe.js` — the user journey (upload → stickers → nudge → undo → export, pixels asserted) | 27 | **26 green** — `reorderReachesLayerList` broke when the Layers list went TOPMOST-FIRST: the probe raises the SECOND-TO-BOTTOM row and expects the last two rows to swap, which is wrong against a topmost-first list (the criterion asserts the behaviour it was written for, so it is kept and left red rather than quietly weakened) |
-| `layers-probe.js` — the Layers list as a sticker selector: rows read topmost-first, the section collapses, a row drags to restack | 8 | **6 green** — `dragReordersPixels`, `dragWorksWithTouch` red on a gate threshold (see below); `dragWorksWithTouch` is mobile-only by design |
+| `probe.js` — the user journey (upload → stickers → nudge → undo → export, pixels asserted) | 27 | green — `reorderReachesLayerList` was updated when the Layers list went TOPMOST-FIRST: it used to raise the second-to-bottom row and expect the last two rows to swap, which is the bottom-first convention the list no longer uses. The INTENT (a store reorder reaches the list) is unchanged; a second half was added that calls `moveTo` with no selection change, because the original click half bubbles to the row and fires `select`, which rebuilds the list anyway — see the note in the trap list |
+| `layers-probe.js` — the Layers list as a sticker selector: rows read topmost-first, the section collapses, a row drags to restack | 8 | green — desktop 7/8, with only `dragWorksWithTouch` red because that criterion needs real touch input (CI runs this probe under `E2E_MOBILE=1` for the full 8/8) |
 | `photo-boundary-probe.js` — a new photo starts clean, the carry-over is explicit and one undo step | 9 | green |
 | `selection-probe.js` — the frame wraps the drawn sticker, before and after a real handle drag | 8 | green |
 | `delete-probe.js` — double-click removes the topmost sticker, one undo step, empty-canvas no-op | 8 | green |
@@ -54,6 +54,13 @@ drag gesture) and device metrics (picker
 target size, canvas backing vs CSS box vs DPR, decoded-emoji count, page height)
 for triage. `layout-probe` in particular reports the preview box vs the backing
 store's aspect ratio, stage vs viewport, thumbnails.
+
+`diag-layers-paint-probe.js` asks whether the CANVAS follows the array order after a
+reorder, with no gesture involved at all: it adds the black and white squares,
+calls `store.moveTo` directly, and reports the pixel at their shared centre before
+and after. It is the isolation step that separated "the store left paint out of
+step" from "the gesture did something extra" — the answer was neither (the gate's
+own colour threshold was wrong; see the trap list).
 
 `diag-small-sticker-probe.js` sweeps the selected box down through a series of
 on-screen sizes and reports, at each one, what a press at the sticker's centre
@@ -141,16 +148,25 @@ rather than letting "no change" read as success.
   property instead (came back toward fit, never below fit) — a broken clamp or a dead
   pinch-in still fails it.
 - **A gate's pixel predicate must bracket the colour the asset actually draws.**
-  `layers-probe.js` classes the centre pixel as `black` only if every channel is
-  `< 60`. Twemoji's black large square (2b1b) is `#31373D` — (49, 55, 61) — so a
-  correctly restacked canvas reads `other(49,55,61)` and the criterion fails while
-  the app is right (the row order changed, the undo delta is 1, and the pixel
-  changed). That one threshold is the whole of both remaining reds: in the mobile
-  run the touch drag also reorders (`rowsBefore`/`rowsAfter` differ and the pixel
-  moved from `white` to `other(49,55,61)`), so `dragWorksWithTouch` fails on
-  `t1.pixel === 'black'` alone, not on the gesture. The correct fix is on the
-  probe side (`<= 70` on the channel test, or classing "not white" as the target)
-  — the gate is frozen, so this is reported with evidence and left untouched.
+  `layers-probe.js` originally classed the centre pixel as `black` only if every
+  channel was `< 60`. Twemoji's black large square (2b1b) is `#31373D` — (49, 55,
+  61) — so a correctly restacked canvas read `other(49,55,61)` and both the drag
+  criteria failed while the app was right (the row order changed and the undo delta
+  was 1). The probe now **measures** each square's rendered colour first — each with
+  its sticker alone on the canvas — and compares against those references, with a
+  guard that the two are distinguishable, so there is no threshold left to
+  re-derive and no drift if Twemoji ships another shade. Correcting an oracle is not
+  weakening a gate; keep every guard and re-run it. (`diag-layers-paint-probe.js`
+  is the isolation tool for this class: it calls `moveTo` with no gesture at all and
+  reports whether the canvas pixel follows the array order.)
+- **A criterion can pass through an event it never meant to test.** In
+  `reorderReachesLayerList`, clicking a row's ⤴ button also bubbles to the row and
+  fires `select`, and `select` rebuilds the layer list on its own — so changing the
+  store's `reorder` event to `change` (which suppresses the rebuild) left the click
+  half GREEN. Measured, not assumed. The criterion now also calls `moveTo` directly,
+  with no selection change, so only the `reorder` event can make it pass; with the
+  event type flipped it goes red (`26/27`, and the moved label appears twice in the
+  list log).
 
 ## Traps
 
