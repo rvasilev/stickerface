@@ -52,6 +52,15 @@ target size, canvas backing vs CSS box vs DPR, decoded-emoji count, page height)
 for triage. `layout-probe` in particular reports the preview box vs the backing
 store's aspect ratio, stage vs viewport, thumbnails.
 
+`diag-small-sticker-probe.js` sweeps the selected box down through a series of
+on-screen sizes and reports, at each one, what a press at the sticker's centre
+would hit. Measured 2026-11-14: **free at 36 CSS px, blocked at 30** — at and below
+~32 px the 8 handles' hit areas (12 px marker + a 10 px `::before` inset) cover the
+entire interior, so the centre press lands on `handle:w` and the sticker cannot be
+moved. The transition brackets the predicted threshold (the edge handle's 32 px box
+reaches the centre when the box is ≤ 32 px). This is the measurement behind the
+Move/Resize-mode design; it becomes a gate when that lands.
+
 ```bash
 E2E_MOBILE=1 E2E_PROBE=tests/e2e/diag-mobile-metrics-probe.js npm run e2e   # device numbers
 ```
