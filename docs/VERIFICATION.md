@@ -81,6 +81,13 @@ Add a `r.yourCriterionName = <boolean>` line and a `log(...)` line with the
 evidence. Top-level boolean keys are the checks; `steps` is the evidence trail.
 Keep it honest: a criterion that cannot fail is not a test.
 
+### Trap: GitHub Pages CDN caching
+
+Pages serves static files through a CDN with a ~10-minute TTL, so a probe (or an
+app module) pushed seconds ago is **not** what the live run executes — you will
+silently verify the previous revision. Both the probe fetch and the fixture fetch
+therefore append `?cb=<Date.now()>` with `cache: 'no-store'`. Do not remove that.
+
 ### Trap: the probe path must be RELATIVE
 
 The app is served at the origin root locally (`/index.html`) but under

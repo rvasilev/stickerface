@@ -93,6 +93,9 @@ unit tests while the product's only job was dead (see "Pitfalls" below).
 - **Chromium refuses loopback page URLs in the Hermes CDP tool.** Drive headless
   Chrome through `tests/e2e/run.py` instead (it starts with the URL on the
   command line; `Page.navigate` is blocked by the same guard).
+- **GitHub Pages serves from a CDN with a ~10-minute TTL.** A file pushed seconds
+  ago is not what a live probe executes — cache-bust (`?cb=<ts>`) anything you
+  fetch from the page, or you will verify the previous revision.
 
 ## Attribution (non-negotiable)
 

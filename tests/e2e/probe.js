@@ -42,6 +42,15 @@
     const rect = canvas.getBoundingClientRect();
     log('previewSize', [canvas.width, canvas.height]);
 
+    // --- 3a. preview geometry: what you see must be the photo, undistorted ---
+    // A CSS box with a different aspect ratio than the backing store stretches
+    // the preview vertically: you then place stickers against a squashed face.
+    const distortion = (rect.width / rect.height) / (canvas.width / canvas.height);
+    r.previewAspectPreserved = Math.abs(distortion - 1) < 0.02;
+    log('previewBox', [Math.round(rect.width), Math.round(rect.height), 'distortion=' + distortion.toFixed(3)]);
+    r.canvasFitsViewport = rect.height <= window.innerHeight + 1 && rect.width <= window.innerWidth + 1;
+    log('viewport', [window.innerWidth, window.innerHeight]);
+
     // --- 3. EXPORT MUST BE POSSIBLE once a photo is loaded --------------------
     // This is the criterion the first build failed: export stayed gated forever
     // because SVG bitmaps never decoded.
