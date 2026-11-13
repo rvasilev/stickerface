@@ -41,10 +41,16 @@ probe must never read as success).
 | `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **4 green** — not implemented |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | **3 green** — not implemented |
 
-`layout-probe.js`, `touch-diag-probe.js` and `diag-doubletap-probe.js` are
-**diagnostics**, not gates: they print app internals (view, tab bookkeeping,
-sticker positions) for triage. `layout-probe` in particular reports the preview box
-vs the backing store's aspect ratio, stage vs viewport, thumbnails.
+`layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js` and
+`diag-mobile-metrics-probe.js` are **diagnostics**, not gates: they print app
+internals (view, tap bookkeeping, sticker positions) and device metrics (picker
+target size, canvas backing vs CSS box vs DPR, decoded-emoji count, page height)
+for triage. `layout-probe` in particular reports the preview box vs the backing
+store's aspect ratio, stage vs viewport, thumbnails.
+
+```bash
+E2E_MOBILE=1 E2E_PROBE=tests/e2e/diag-mobile-metrics-probe.js npm run e2e   # device numbers
+```
 
 ### Running any probe through the one harness
 
