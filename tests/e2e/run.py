@@ -233,6 +233,12 @@ async def main(probe_path, url_match="8123"):
                                 continue
                             pts = [(float(v[0]), float(v[1]))]
                         x, y = pts[0]
+                        # `button` lets a step drive the MIDDLE button: CDP carries it
+                        # as button 'middle' + buttons 4, and the app's pan path keys
+                        # off `ev.button === 1`, which a hardcoded 'left' can never
+                        # reach.
+                        btn = step.get("button", "left")
+                        btns = 4 if btn == "middle" else 1
                         if kind == "move":
                             await send("Input.dispatchMouseEvent", {
                                 "type": "mouseMoved", "x": x, "y": y, "button": "none",
@@ -243,16 +249,33 @@ async def main(probe_path, url_match="8123"):
                                 "type": "mouseMoved", "x": x, "y": y, "button": "none",
                             })
                             await send("Input.dispatchMouseEvent", {
-                                "type": "mousePressed", "x": x, "y": y, "button": "left",
-                                "buttons": 1, "clickCount": count,
+                                "type": "mousePressed", "x": x, "y": y, "button": btn,
+                                "buttons": btns, "clickCount": count,
                             })
                             if kind == "hold":
                                 await asyncio.sleep(float(step.get("holdMs", 900)) / 1000)
                             await send("Input.dispatchMouseEvent", {
-                                "type": "mouseReleased", "x": x, "y": y, "button": "left",
+                                "type": "mouseReleased", "x": x, "y": y, "button": btn,
                                 "buttons": 0, "clickCount": count,
                             })
                         await asyncio.sleep(float(step.get("ms", 60)) / 1000)
+                        continue
+                    if kind == "wheel":
+                        # A real wheel event. `deltaMode` cannot be sent through CDP at
+                        # all, which is why the line/page normalisation is covered by a
+                        # unit test instead of here.
+                        x, y = pts[0]
+                        mods = int(step.get("modifiers", 0))
+                        await send("Input.dispatchMouseEvent", {
+                            "type": "mouseMoved", "x": x, "y": y, "button": "none", "modifiers": mods,
+                        })
+                        await send("Input.dispatchMouseEvent", {
+                            "type": "mouseWheel", "x": x, "y": y,
+                            "deltaX": float(step.get("deltaX", 0)),
+                            "deltaY": float(step.get("deltaY", -100)),
+                            "modifiers": mods,
+                        })
+                        await asyncio.sleep(float(step.get("ms", 80)) / 1000)
                         continue
                     if kind == "key":
                         # modifiers: alt=1 ctrl=2 meta=4 shift=8
@@ -317,7 +340,11 @@ async def main(probe_path, url_match="8123"):
                         (dx0, dy0), (dx1, dy1) = pts[0], pts[1]
                         mods = int(step.get("modifiers", 0))
                         n = int(step.get("steps", 8))
-                        base = {"button": "left", "buttons": 1, "clickCount": 1, "modifiers": mods}
+                        # `button` too: a middle-button DRAG is how the pan path is
+                        # exercised, and a hardcoded 'left' cannot reach it.
+                        dbtn = step.get("button", "left")
+                        base = {"button": dbtn, "buttons": 4 if dbtn == "middle" else 1,
+                                "clickCount": 1, "modifiers": mods}
                         await send("Input.dispatchMouseEvent", {
                             "type": "mouseMoved", "x": dx0, "y": dy0, "button": "none", "modifiers": mods,
                         })
