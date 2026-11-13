@@ -337,14 +337,6 @@ export class CanvasApp {
     return { x: c.x / this.scale, y: c.y / this.scale };
   }
 
-  _panClamp() {
-    const r = this.els.canvas.getBoundingClientRect();
-    // Clamp relative to the canvas CSS box (the visible image area).
-    const cssW = r.width || this.canvasW;
-    const cssH = r.height || this.canvasH;
-    this.view = clampViewPan(this.view, cssW, cssH);
-  }
-
   _canvasPxView() {
     // paint() wants the offset in canvas px; this.view is CSS px. The zoom
     // scales the drawn image, so it must be scaled back here too and used
@@ -571,7 +563,14 @@ export class CanvasApp {
   }
 
   _bindInputs() {
-    this.els.fileInput.addEventListener('change', (e) => this.loadImageFile(e.target.files?.[0]));
+    this.els.fileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      // Clear the value first: re-picking the SAME file fires no change event
+      // otherwise, so a reload would do nothing while the old stickers stayed
+      // on the canvas with no way to start clean.
+      e.target.value = '';
+      this.loadImageFile(file);
+    });
     this.els.customInput.addEventListener('change', (e) => {
       // Same rule as the tools: the "use my own image" control is hidden in v1,
       // so a programmatic change on the hidden input must load nothing. Without

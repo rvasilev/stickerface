@@ -310,6 +310,12 @@ export function clampViewPan(view, cssW, cssH) {
  * gesture start stays under the focal point now, which is also what makes a
  * moving centroid pan the image at the same time as it zooms.
  *
+ * Moving centroid pans; a changing distance zooms. One limit worth knowing:
+ * clampViewPan truncates an offset that exceeds the scaled allowance, so a
+ * focal point near the canvas edge at high zoom can slip by the excess — the
+ * image stays inside the clamp. Paint, the selection frame and hit-testing all
+ * read the same `view`, so they stay consistent with each other regardless.
+ *
  * With focal points in canvas-CSS coordinates (relative to the canvas rect
  * origin), the image point under the focal at start is
  * `(focalStart - startDx) / startScale` (in backing*preview units), and the

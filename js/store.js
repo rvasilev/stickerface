@@ -81,7 +81,14 @@ export class Store {
   /** Replace the whole sticker list (used by "apply layout to next photo"). */
   setStickers(stickers) {
     const before = this._snapshot();
-    this.state.stickers = (stickers ?? []).map(clone);
+    const list = (stickers ?? []).map(clone);
+    // z is owned by the store, not the caller: a carried layout arrives with the
+    // previous photo's z values, and duplicates there would let paint order and
+    // array order disagree.
+    list.forEach((s, i) => {
+      s.z = i + 1;
+    });
+    this.state.stickers = list;
     const after = this._snapshot();
     this._push({ undo: () => this._restore(before), redo: () => this._restore(after) });
     this._emit({ type: 'change' });
@@ -101,7 +108,7 @@ export class Store {
       w: sticker.w ?? DEFAULT_SIZE,
       h: sticker.h ?? DEFAULT_SIZE,
       rot: sticker.rot ?? 0,
-      z: sticker.z ?? nextZ,
+      z: nextZ, // the store owns z: a caller-supplied one could collide
       radius: Math.min(0.5, Math.max(0, sticker.radius ?? DEFAULT_RADIUS)),
       strength: Math.max(0, sticker.strength ?? DEFAULT_STRENGTH[sticker.kind ?? 'emoji'] ?? 0),
     };
@@ -203,7 +210,10 @@ export class Store {
     });
     const after = this._snapshot();
     this._push({ undo: () => this._restore(before), redo: () => this._restore(after) });
-    this._emit({ type: 'change' });
+    // Its own event type: the layer list must rebuild when the ORDER changes. Today it
+    // also rebuilds via the history event that _push emits above, so this is making an
+    // accidental dependency explicit rather than fixing a visible bug.
+    this._emit({ type: 'reorder' });
   }
 
   select(id) {

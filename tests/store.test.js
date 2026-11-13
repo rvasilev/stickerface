@@ -33,6 +33,20 @@ describe('Store — z uniqueness', () => {
     expect(store.state.stickers.map((s) => s.id)).toEqual([a.id, b.id, c.id]);
     expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2, 3]);
   });
+
+  it('z is the store\'s to assign: a caller-supplied z is ignored, duplicates renumbered', () => {
+    const { store } = makeStore();
+    store.add({ kind: 'emoji', cx: 0.2, cy: 0.2, z: 1 });
+    store.add({ kind: 'emoji', cx: 0.5, cy: 0.5, z: 1 });
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2]);
+
+    // A carried layout arrives with the previous photo's z values.
+    store.setStickers([
+      { kind: 'emoji', cx: 0.3, cy: 0.3, z: 5 },
+      { kind: 'emoji', cx: 0.6, cy: 0.6, z: 5 },
+    ]);
+    expect(store.state.stickers.map((s) => s.z)).toEqual([1, 2]);
+  });
 });
 
 describe('Store — basics', () => {
