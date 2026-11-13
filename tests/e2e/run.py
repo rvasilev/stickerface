@@ -64,8 +64,13 @@ async def main(probe_path, url_match="8123"):
         await send("Page.reload", {"ignoreCache": True})
         await asyncio.sleep(2.5)
 
-        # top-level await is illegal in a classic script, hence the async wrapper
-        expr = f"(async () => await eval(await (await fetch('{probe}')).text()))()"
+        # top-level await is illegal in a classic script, hence the async wrapper.
+        # Cache-buster: GitHub Pages' CDN caches static files (~10 min), so a
+        # freshly pushed probe.js would otherwise run the PREVIOUS revision.
+        expr = (
+            "(async () => await eval(await (await fetch("
+            f"'{probe}?cb=' + Date.now(), {{cache: 'no-store'}})).text()))()"
+        )
         res = await send(
             "Runtime.evaluate",
             {"expression": expr, "awaitPromise": True, "returnByValue": True, "timeout": 60000},

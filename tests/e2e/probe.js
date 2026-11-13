@@ -25,7 +25,7 @@
     // --- 2. load a photo ------------------------------------------------------
     // Relative path: the app is served at the origin root locally but under
     // /stickerface/ on GitHub Pages (a root-absolute path 404s there).
-    const fixtureRes = await fetch('tests/e2e/fixture.jpg');
+    const fixtureRes = await fetch(`tests/e2e/fixture.jpg?cb=${Date.now()}`, { cache: 'no-store' });
     const blob = await fixtureRes.blob();
     r.fixtureLoaded = fixtureRes.ok && blob.size > 1000 && blob.type.startsWith('image/');
     log('fixture', [fixtureRes.status, blob.type, blob.size]);
