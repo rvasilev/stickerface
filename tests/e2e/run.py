@@ -20,12 +20,14 @@ carry the assertions.
 """
 import asyncio
 import json
+import os
 import sys
 import urllib.request
 
 import websockets
 
-CDP_HTTP = "http://127.0.0.1:9222"
+# Override to drive a second Chrome (e.g. one pointed at the deployed site).
+CDP_HTTP = os.environ.get("CDP_HTTP", "http://127.0.0.1:9222")
 
 
 def page_target(match="8123"):
@@ -36,9 +38,9 @@ def page_target(match="8123"):
     raise SystemExit(f"no page target whose url contains {match}")
 
 
-async def main(probe_path):
+async def main(probe_path, url_match="8123"):
     probe = "/" + probe_path.lstrip("/")
-    target = page_target()
+    target = page_target(url_match)
     events = []
     async with websockets.connect(target["webSocketDebuggerUrl"], max_size=64 * 1024 * 1024) as ws:
         counter = 0
@@ -124,4 +126,5 @@ async def main(probe_path):
 
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "tests/e2e/probe.js"
-    sys.exit(asyncio.run(main(path)))
+    match = sys.argv[2] if len(sys.argv) > 2 else "8123"
+    sys.exit(asyncio.run(main(path, match)))

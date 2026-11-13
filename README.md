@@ -47,14 +47,28 @@ model. Video is explicitly out of scope.
 ## Development
 
 ```bash
-NODE_ENV=development npm install --include=dev
-npx vitest run          # geometry + store unit tests (node, no DOM)
-python3 -m http.server 8000   # manual check — file:// will NOT work (ES modules)
+NODE_ENV=development npm install --include=dev   # required on this box
+npm test          # unit gate: vitest, pure modules, no DOM
+npm run e2e       # acceptance gate: real headless Chrome, 12 criteria
+npm run serve     # then open http://localhost:8000
 ```
 
-`js/geometry.js` is pure (no DOM, no canvas) and is the only module
-unit-tested in node. `js/store.js` holds all state in normalized
-coordinates; pixel conversion happens only at the render/export edge.
+`js/geometry.js` is pure (no DOM, no canvas) and is the only module unit-tested in
+node. `js/store.js` holds all state in normalized coordinates; pixel conversion
+happens only at the render/export edge. **A green unit suite is not enough** — the
+first build of this repo passed 48/48 unit tests while export was disabled in the
+browser. Run `npm run e2e` too.
+
+## Documentation
+
+| File | For |
+|---|---|
+| `PLAN.md` | the spec: architecture, milestones, acceptance criteria |
+| `AGENTS.md` | working rules for any AI agent — invariants, commands, pitfalls |
+| `docs/ARCHITECTURE.md` | module map, data model, render/export pipeline |
+| `docs/VERIFICATION.md` | the two gates, the browser probe, how to add a criterion |
+| `docs/DEPS.md` | dependency policy, npm/WASM survey, licensing verdicts |
+| `docs/AGENT-WORKFLOW.md` | how this repo is built with a coding agent, and what to verify |
 
 ## Privacy
 

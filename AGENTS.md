@@ -1,43 +1,105 @@
 # AGENTS.md — working rules for this repo
 
-Read `PLAN.md` first. It is the spec; this file is only how to work here.
+You are working on **StickerFace**: an offline, no-account web tool that hides
+faces in a photo with an emoji sticker, a blur patch or a mosaic patch.
+Static site, no build step, served from the repo root by GitHub Pages.
 
-## Stack rules
+Read in this order before changing anything:
 
-- **No bundler, no build step.** Vanilla ES modules, served as-is from the repo
-  root by GitHub Pages. If you feel the urge to add Vite, stop and say why.
-- **No runtime network calls.** Everything (emoji SVGs, fonts, code) is served
-  from this repo. A request to a CDN breaks the product's only real promise.
-- **No dependencies at runtime.** `devDependencies` (vitest, playwright) only.
-- `js/geometry.js` is **pure** — no DOM, no canvas, no globals. It is the only
-  module unit-tested in node, so anything geometric must live there.
-- State stores **normalized** coordinates (0..1). Never persist pixel values.
-- All exports composite at `image.naturalWidth/Height`, never at preview scale.
+1. `PLAN.md` — the spec: architecture, data model, milestones, acceptance criteria.
+2. `docs/ARCHITECTURE.md` — module map, invariants, the render/export pipeline.
+3. `docs/VERIFICATION.md` — how to prove your change works. **Non-optional.**
+4. `docs/DEPS.md` — dependency policy and why the obvious libraries were rejected.
+
+## The five invariants
+
+Break one of these and the change is wrong, whatever the tests say.
+
+1. **No bundler, no build step, no framework.** Vanilla ES modules served as-is.
+   If you feel the urge to add Vite, stop and say why in the PR instead.
+2. **No runtime network calls.** No CDN fonts, no CDN libraries, no remote models.
+   Everything is served from this repo. A CDN request breaks the product's only
+   real promise ("nothing leaves your machine").
+3. **No runtime dependencies.** `devDependencies` only (vitest today). See
+   `docs/DEPS.md` before adding anything.
+4. **`js/geometry.js` is pure** — no DOM, no canvas, no globals, no imports. All
+   geometric maths lives there so it can be unit-tested in node.
+5. **State is NORMALIZED (0..1).** Never persist pixel coordinates. Pixel maths
+   happens only at the render/export edge (`px()`, `norm()`), and export always
+   composites at `image.naturalWidth/naturalHeight`, never at preview scale.
 
 ## Commands
 
 ```bash
-NODE_ENV=development npm install --include=dev   # REQUIRED — this box exports NODE_ENV=production,
-                                                 # which makes npm silently skip ALL devDependencies
-npx vitest run          # unit tests
-python3 -m http.server 8000   # manual check — file:// will NOT work (ES modules)
+# devDependencies — REQUIRED form on this box. It exports NODE_ENV=production,
+# which makes a bare `npm install` silently skip ALL devDependencies.
+NODE_ENV=development npm install --include=dev
+
+npm test                      # vitest unit tests (geometry + store + render fallback)
+npm run e2e                   # real-browser acceptance probe — see docs/VERIFICATION.md
+npm run serve                 # python3 -m http.server 8000 (file:// will NOT work: ES modules)
 ```
+
+## Definition of done
+
+A change is done when ALL of these hold:
+
+1. `npm test` passes (real output, pasted in the summary).
+2. `npm run e2e` prints `12/12 passed` and `E2E_EXIT=0`.
+3. The E2E "console / uncaught exceptions" section prints `(none)`.
+4. `README.md` "Features" still matches what the code actually does — no
+   overclaiming. If you did not finish something, say so explicitly.
+5. No new runtime dependency, no network request after first load.
+
+Unit tests alone are **not** enough. The first build of this repo passed 48/48
+unit tests while the product's only job was dead (see "Pitfalls" below).
 
 ## Conventions
 
 - Plain JS with JSDoc types. No TypeScript build step.
-- 2-space indent, single quotes, semicolons. Functions over classes except for
-  `Store`.
+- 2-space indent, single quotes, semicolons. Functions over classes, except
+  `Store` and `CanvasApp`.
+- Comments explain **why**, not what. Good comment: why the blur source rect is
+  inset by 2× sigma. Bad comment: "// loop over stickers".
 - Commit messages: imperative, one line, prefixed `feat:` / `fix:` / `test:` /
-  `docs:` / `chore:`.
-- Never commit downloaded model weights or the full Twemoji set — only the
-  curated manifest in `js/emoji.js` and the SVGs it names.
-- Keep `PLAN.md` acceptance criteria honest: if something is not done, say so in
-  the summary rather than marking it done.
+  `docs:` / `chore:`. Commit in small logical steps; never commit `node_modules`.
+- Never commit downloaded model weights, or a Twemoji set larger than the curated
+  manifest in `js/emoji.js`. To extend the set, edit `scripts/fetch-emoji.mjs`
+  and re-run it (it rewrites `js/emoji.js` — that file is GENERATED, don't
+  hand-edit it).
+- Accessibility is part of the spec, not a nicety: every control is a real
+  `<button>`/`<input>` with an accessible name, and focus rings stay visible.
+
+## Pitfalls (each one already cost real debugging time here)
+
+- **Twemoji SVGs have no intrinsic size** — only a `viewBox`. `createImageBitmap`
+  on the raw Blob throws `InvalidStateError: The source image could not be
+  decoded`. Decode through an `<img>` (+ offscreen canvas) instead. **Never patch
+  the vendored SVGs** — `assets/emoji/ATTRIBUTION.md` claims they are unmodified
+  upstream copies, and that claim has to stay true.
+- **Never gate the primary action on "every asset loaded".** Gating export on
+  `ready = all 76 bitmaps decoded` meant one undecodable file disabled the whole
+  product — exactly the competitor failure mode we exist to avoid. Gate on "the
+  user's input is valid"; degrade cosmetically and report it in the UI.
+- **Beware duplicate initialisation.** A second `CanvasApp` construction doubled
+  every listener and doubled the picker (152 buttons for 76 emoji) while looking
+  correct, because each instance re-rendered the layer list from its own store.
+  Assert element counts, not just behaviour.
+- **`NODE_ENV=production` is exported on this box** → `npm install` silently skips
+  all devDependencies and `npm test` then fails with a missing binary.
+- **`file://` will not load ES modules.** Always serve over HTTP.
+- **Top-level `await` is illegal in a classic script** — in a `Runtime.evaluate`
+  expression wrap it: `(async () => await eval(...))()`.
+- **Chromium refuses loopback page URLs in the Hermes CDP tool.** Drive headless
+  Chrome through `tests/e2e/run.py` instead (it starts with the URL on the
+  command line; `Page.navigate` is blocked by the same guard).
 
 ## Attribution (non-negotiable)
 
-- Twemoji graphics: CC-BY 4.0 — keep `assets/emoji/ATTRIBUTION.md` and the credit
-  line in `README.md` intact.
-- The face-detection engine we take ideas from is `ORB-HD/deface` (MIT).
-- Never present borrowed work as original.
+- **Twemoji graphics: CC-BY 4.0.** Keep `assets/emoji/ATTRIBUTION.md`, the credit
+  line in `README.md`, and the About panel credits intact. The code is MIT; the
+  artwork is not.
+- Detection/design lessons come from `ORB-HD/deface` (MIT) and
+  `kmcheung12/faceblind`. Credit them by name and link.
+- Never present borrowed work as original. If you port code, name the source in
+  the file header.

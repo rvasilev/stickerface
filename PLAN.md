@@ -136,13 +136,32 @@ highest-value manual-mode feature: a family photo set is 10 near-identical shots
 
 ## Milestones
 
-| # | Deliverable | Gate |
-|---|---|---|
-| **M0** | repo, README, LICENSE, index.html canvas, image upload, ONE draggable emoji sticker | manual: upload → drag → export PNG matches |
-| **M1** | handles + rotate, undo, layer list, blur + mosaic kinds, full-res export, keyboard | `npm test` green; manual export at 3 image sizes |
-| **M2** | emoji picker (curated Twemoji set), custom image sticker, "same layout next photo" | manual batch of 3 photos |
-| **M3** | Playwright smoke test (upload → place → download), geometry unit tests expanded | CI green on push |
-| M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export |
+| # | Deliverable | Gate | State |
+|---|---|---|---|
+| **M0** | repo, README, LICENSE, index.html canvas, image upload, draggable emoji sticker | upload → drag → export PNG | **done** |
+| **M1** | handles + rotate, undo, layer list, blur + mosaic kinds, full-res export, keyboard | `npm test` + browser probe green | **done** (after the fix below) |
+| **M2** | emoji picker (curated Twemoji set), custom image sticker, "same layout next photo" | probe + manual batch of 3 photos | **done**; batch flow needs a manual pass |
+| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 12/12, exit 0 | **done**, except CI |
+| M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
+
+M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
+installed on the build box and the Hermes CDP tool refuses loopback URLs, so
+`tests/e2e/run.py` drives headless Chrome over the DevTools WebSocket directly.
+It is a real browser, a real file upload and real pixel assertions — see
+`docs/VERIFICATION.md`. Adding Playwright later is fine; do not delete the probe.
+
+## Status log
+
+- **2026-11-13** — v1 built (delegated to a coding agent). Unit gate green at 48/48.
+- **2026-11-13** — browser verification found two real defects the unit tests could
+  not see: (a) all 76 Twemoji SVGs failed to decode (`createImageBitmap` on a
+  `viewBox`-only SVG throws `InvalidStateError`), which left **export permanently
+  disabled**; (b) `CanvasApp` was constructed twice — 152 picker buttons for 76
+  emoji and doubled listeners, masked by each instance re-rendering the layer list
+  from its own store. Both fixed (decode through `<img>` + offscreen canvas, export
+  gated on "image loaded" with a degraded-asset fallback, single init), regression
+  test added, probe now 12/12. Lesson recorded in `AGENTS.md` and
+  `docs/AGENT-WORKFLOW.md`: a green unit suite is not the app working.
 
 ## Acceptance criteria for M1 (what "done" means)
 

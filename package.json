@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "e2e": "bash scripts/e2e.sh",
+    "fixture": "python3 scripts/make-fixture.py",
     "serve": "python3 -m http.server 8000"
   },
   "devDependencies": {
