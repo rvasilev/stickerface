@@ -63,7 +63,7 @@ E2E_MOBILE=1 E2E_PROBE=tests/e2e/handles-probe.js npm run e2e
 A change is done when ALL of these hold:
 
 1. `npm test` passes (real output, pasted in the summary).
-2. `npm run e2e` prints `26/26 passed` and `E2E_EXIT=0` (the count grows as
+2. `npm run e2e` prints `27/27 passed` and `E2E_EXIT=0` (the count grows as
    criteria are added — quote the number you actually saw, never a remembered one).
 3. Any gate your change touches is green too, run through the same harness:
    `E2E_PROBE=tests/e2e/selection-probe.js npm run e2e` (8/8),
@@ -99,37 +99,39 @@ unit tests while the product's only job was dead (see "Pitfalls" below).
 
 ## Anti-slop requirements (this repo)
 
-Measured against the code on 2026-11-14, not a matter of taste. Each rule names the
-failure it prevents.
+Each rule names the failure it prevents. The inventories were cleared on 2026-11-14
+(`fix: one removal path, no dead code…`) — they stay in the rule as the concrete shape
+to look for, not as a to-do list. Re-measure before trusting a number here.
 
 1. **One conversion per space change.** `_cssToCanvasPx` is the only CSS→canvas
-   conversion; `_canvasPoint` is the only CSS→natural. Never hand-copy the maths at a
-   call site. `_removeTopmostAt` and `tryRemoveAt` in `js/ui.js` both do, one of them
-   with a comment admitting it ("same conversion as `_canvasPoint`"). Two copies of one
-   projection is how the selection frame ended up ~45px off the sticker it wrapped.
-2. **One path per rule.** "Remove the topmost sticker at a screen point" exists twice
-   (`_removeTopmostAt` and the nested `tryRemoveAt`). Merge them; keep the behaviour both
-   share today.
+   conversion and `_canvasPoint` the only CSS→natural. Hand-copying that maths at a call
+   site is how the selection frame once ended up ~45px off the sticker it wrapped.
+2. **One path per rule.** "Remove the topmost sticker at a screen point" is
+   `_removeTopmostAt` alone — the desktop dblclick and the touch double-tap both call it.
+   When a second copy appears, merge it and keep the behaviour both share.
 3. **No harness talk in app code.** Nothing in `js/` may mention the probe, a gate, a
-   criterion, a fixture or a test coordinate. Current offenders to delete on sight:
-   `ui.js` "the probe does exactly that", "BUT the gate's two-finger pan happens
-   BETWEEN", "For the gate they coincide at (124,594)", "probe sends real CDP clickCount
-   1 then 2", `pointer-tracker.js` "measurable from the gate". Exactly **one** allowlisted
-   exception: `canvas.dataset.pointers`, a deliberate measurement contract — say that in
-   its comment and nowhere else.
-4. **No refactor history, no narrated reasoning.** Delete "The old `_canvasPoint` (now on
-   the prototype above)", "NOTE: movedDist>8-on-sticker is a drag END", "matters for M6
-   later", "historically need capture".
-5. **No dead code, no dead exports.** `_previewScale()` has no caller; `render.js`'s
-   `cancelDraw` has none anywhere; `bitmapFromImage`, `loadImgWithSize` and `export.js`'s
-   `compositeCanvas` are used only inside their own file and should be locals. Grep for
-   callers — including tests and config — before keeping anything.
-6. **Split by job, not by line count.** `_bindPointer()` (196 lines) is pointer
-   arbitration + desktop dblclick + a window-level release net + handle-drag wiring;
-   `_maybePlaceOnTap()` (75) is double-tap policy + hit-test + placement + tool dispatch.
-7. **Comment budget: keep it under ~1 line in 4.** Measured 2026-11-14: overall 0.30,
-   `ui.js` 0.26 — but `geometry.js` 0.76 and `pointer-tracker.js` 0.80, i.e. those two
-   files are mostly prose about themselves. Trim them; do not extend them.
+   criterion, a fixture or a test coordinate: the app must read as a product, not as a
+   fixture for its own tests. Exactly **one** allowlisted exception —
+   `canvas.dataset.pointers`, a deliberate measurement contract, named as such in the
+   comment on `_registerPointer` and nowhere else.
+4. **No refactor history, no narrated reasoning.** A comment says what the code does and
+   why it must — never what it used to do, what it was called before, or which milestone
+   will want it later.
+5. **No dead code, no dead exports.** A symbol used only inside its own file is a local;
+   one with no caller anywhere is deleted. Grep for callers — **including tests and
+   config** — before keeping anything. Two exports are reachable only from tests:
+   `handlePositions` (`geometry.js`) and `Store.resize`/`rotate`. They are kept because
+   tests count as callers, so removing them is a judgement call to state in the commit,
+   not a silent sweep.
+6. **Split by job, not by line count.** Pointer wiring is now one method per job —
+   `_bindPointer` composes `_bindDesktopDblclick`, `_bindCanvasPointer`, `_bindWindowMove`,
+   `_bindHandles`, `_bindReleaseNet` — and `_maybePlaceOnTap` delegates the drop to
+   `_placeStickerAt`, the removal to `_removeTopmostAt`. **Binding order is part of the
+   contract** (see the comment on `_bindPointer`): the handles register before the window
+   release net, or a handle's `up` stops owning its pointer.
+7. **Comment budget: keep it under ~1 line in 4.** Measured 2026-11-14: overall 0.26,
+   `ui.js` 0.22, `store.js` 0.13 — but `geometry.js` 0.32, `render.js` 0.32 and
+   `export.js` 0.40 are still prose-heavy. Trim; do not extend.
 8. **Never hand-edit `js/emoji.js`** — generated by `scripts/fetch-emoji.mjs`.
 9. **Disabled is not absent.** The blur/mosaic/About/custom-image paths stay, hidden and
    guarded. Never delete them silently, never re-expose them.
