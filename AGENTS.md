@@ -11,7 +11,7 @@ Read in this order before changing anything:
 3. `docs/VERIFICATION.md` — how to prove your change works. **Non-optional.**
 4. `docs/DEPS.md` — dependency policy and why the obvious libraries were rejected.
 
-## The five invariants
+## The six invariants
 
 Break one of these and the change is wrong, whatever the tests say.
 
@@ -20,13 +20,24 @@ Break one of these and the change is wrong, whatever the tests say.
 2. **No runtime network calls.** No CDN fonts, no CDN libraries, no remote models.
    Everything is served from this repo. A CDN request breaks the product's only
    real promise ("nothing leaves your machine").
-3. **No runtime dependencies.** `devDependencies` only (vitest today). See
-   `docs/DEPS.md` before adding anything.
+3. **No runtime dependencies.** `devDependencies` only (vitest today). Any runtime
+   package must be recorded in `docs/DEPS.md` with its licence and be self-hosted;
+   the only documented candidate is `stackblur-canvas` (MIT) for the Safari < 18
+   blur fallback, and it is **not adopted** — the box-blur scratch pass covers that
+   case today.
 4. **`js/geometry.js` is pure** — no DOM, no canvas, no globals, no imports. All
    geometric maths lives there so it can be unit-tested in node.
 5. **State is NORMALIZED (0..1).** Never persist pixel coordinates. Pixel maths
    happens only at the render/export edge (`px()`, `norm()`), and export always
    composites at `image.naturalWidth/naturalHeight`, never at preview scale.
+6. **One projection for the overlay.** Everything drawn over the canvas (selection
+   frame, 8 handles, rotate handle, hit-testing) is projected as
+   `cssPoint = canvasRect.origin + backingPoint * previewScale` — a single scale,
+   the canvas's own rect. Using backing pixels as CSS pixels, borrowing the stage's
+   offset, or applying the scale twice is the bug behind the user-reported
+   "frame not around the emoji". The preview canvas's CSS box must also keep the
+   backing store's aspect ratio, or the user positions stickers against a stretched
+   photo.
 
 ## Commands
 

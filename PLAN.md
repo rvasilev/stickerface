@@ -29,14 +29,22 @@ stickerface/
     app.js            # bootstrap: wires UI + canvas + store
     store.js          # state + command-pattern undo/redo
     geometry.js       # PURE. normalized<->pixel, hit-test, handles, rotate
-    render.js         # draws base image + each sticker (emoji/blur/mosaic)
+    render.js         # draws base image + each sticker (emoji/custom/blur/mosaic)
     export.js         # full-resolution composite -> Blob (PNG/JPG)
-    emoji.js          # bundled sticker catalogue (manifest, not inline data)
-    ui.js             # DOM wiring: toolbar, layer list, file input, picker
+    emoji.js          # bundled sticker catalogue (manifest, GENERATED)
+    ui.js             # DOM wiring: toolbar, layer list, picker, selection chrome
   assets/emoji/       # curated Twemoji SVGs (CC-BY 4.0) + ATTRIBUTION.md
-  scripts/fetch-emoji.mjs  # deterministic fetch of the curated set (dev only)
-  tests/geometry.test.js   # vitest, node env, zero DOM
-  README.md  LICENSE  PLAN.md  AGENTS.md
+  scripts/fetch-emoji.mjs   # deterministic fetch of the curated set (dev only)
+  scripts/make-fixture.py   # writes the E2E fixture photo
+  scripts/e2e.sh            # self-contained acceptance gate (server + Chrome + probe)
+  tests/geometry.test.js    # vitest, node env, zero DOM
+  tests/store.test.js       # undo/redo, clamping
+  tests/render-fallback.test.js  # SVG raster fallback regression
+  tests/e2e/run.py          # CDP driver; tests/e2e/probe.js = the user journey
+  tests/e2e/selection-probe.js  # selection-frame alignment (independent pixel oracle)
+  tests/e2e/layout-probe.js     # preview aspect / viewport fit numbers
+  docs/               # ARCHITECTURE, VERIFICATION, DEPS, AGENT-WORKFLOW
+  README.md  LICENSE  PLAN.md  AGENTS.md  .nojekyll
 ```
 
 **Why no bundler:** GitHub Pages serves the repo root directly; ES modules work
@@ -50,11 +58,11 @@ friction for zero benefit at this size.
 // a 40MP export are the same math with a different scale factor.
 sticker = {
   id: "s1",
-  kind: "emoji" | "blur" | "mosaic",
-  src: "assets/emoji/1f600.svg" | "user:<objectURL>",  // emoji kind only
+  kind: "emoji" | "custom" | "blur" | "mosaic",   // "custom" = user-supplied image
+  src: "assets/emoji/1f600.svg" | "<objectURL>",  // emoji + custom kinds
   cx: 0.42, cy: 0.55,      // centre, normalized to image width/height
   w: 0.12,                 // width normalized to image WIDTH
-  h: 0.12,                 // height normalized to image HEIGHT (independent -> non-square ok)
+  h: 0.08,                 // height normalized to image HEIGHT (independent axes)
   rot: 0,                  // radians, clockwise, about (cx,cy)
   z: 3,                    // paint order
   radius: 0.5,             // blur/mosaic: corner rounding, 0..0.5 of min(w,h)
@@ -66,24 +74,53 @@ Rules:
 - Preview canvas may be downscaled (cap the long edge at 1600 px for speed);
   **export always composites at `image.naturalWidth/Height`**.
 - Never store pixel coordinates in state. Convert at the render edge only.
-- Emoji aspect: preserve the SVG's intrinsic ratio by default; dragging a corner
-  with `Shift` unlocks non-uniform scaling.
+- **A square sticker must be square in PIXELS.** `w` and `h` normalize per-axis,
+  so `w === h` is only square on a square photo: on 1200×800 the default
+  `w: 0.18, h: 0.18` is a 216×144 px box. Emoji/custom stickers are therefore
+  created with `h = w * imgW / imgH` and drawn filling that box; the art's
+  intrinsic ratio is preserved by making the box match it, never by letterboxing
+  inside a box of the wrong shape.
+- **The overlay must be projected with the preview scale and the canvas's own
+  origin.** The selection frame, handles and hit-testing all live in CSS pixels
+  over a canvas drawn at `previewScale = cssWidth / naturalWidth`; using backing
+  pixels as CSS pixels (or applying the scale twice) is a bug, and the frame must
+  wrap the *drawn* sticker within a few pixels — see `docs/VERIFICATION.md`,
+  `tests/e2e/selection-probe.js`.
 
 ### Rendering
 
-Single offscreen `HTMLCanvasElement`, redrawn per interaction via
-`requestAnimationFrame` (coalesce multiple events per frame).
+One **visible** `HTMLCanvasElement` (`#stage-canvas`) plus offscreen scratch
+canvases for the base image and the blur/mosaic work; redrawn per interaction via
+`requestAnimationFrame` (coalesce multiple events per frame). The preview canvas
+is displayed with a CSS box whose aspect ratio equals the backing store's — a
+mismatched box stretches the photo the user is placing stickers against (this was
+a real defect; it is gated by `previewAspectPreserved`).
 
 Per sticker, in `z` order:
-- **emoji** — `ctx.translate/rotate` then `drawImage(svgBitmap)`; SVGs are
-  pre-decoded once into `ImageBitmap`s at load (an `<img>` per frame is a
-  re-rasterisation on every paint).
+- **emoji / custom** — `ctx.translate/rotate` then `drawImage` of a pre-decoded
+  `ImageBitmap`; an `<img>` per frame would re-rasterise on every paint. Decoding
+  goes through an `<img>` (sized, then drawn to an offscreen canvas) because
+  Twemoji SVGs carry only a `viewBox` and no intrinsic size — passing the raw Blob
+  to `createImageBitmap` throws `InvalidStateError`. The Blob path remains only as
+  a fallback. A sticker whose bitmap is missing draws a placeholder rather than
+  nothing.
 - **blur** — clip to the rounded rect, then `ctx.filter = 'blur(Npx)'` and
-  `drawImage(base, …)`; fall back to a manual box-blur pass on a scratch canvas
-  if `ctx.filter` is unsupported. Note: canvas blur bleeds at the edges — clip
-  first, blur second, and inset the source rect by 2× sigma.
+  `drawImage(base, …)`; a box-blur scratch pass covers engines without
+  `ctx.filter` (Safari < 18). Note: canvas blur bleeds at the edges — clip first,
+  blur second, and inset the source rect by 2× sigma.
 - **mosaic** — read the region's pixels, average per `strength`-sized block,
   write back; `imageSmoothingEnabled = false` when scaling up blocks.
+
+### Overlay (selection chrome)
+
+The 8 resize handles and the rotate handle are **DOM elements**, positioned over
+the canvas in CSS pixels and rotated by a CSS transform about the sticker centre —
+never painted into the canvas, so they cannot appear in an export. The projection
+is `cssPoint = canvasRect.origin + backingPoint * previewScale` using **one**
+scale factor and the canvas's own bounding rect (do not mix in the stage's
+offset, and never apply the scale twice). The frame must wrap the sticker that is
+actually drawn: the gate re-measures the emoji's pixels in the preview canvas and
+compares (`frameMatchesStickerOnScreen`).
 
 ### Export
 
@@ -94,8 +131,13 @@ the pixel scale factor → `canvas.toBlob(mime, quality)` → download as
 - PNG default (lossless, alpha); JPEG at `quality 0.92` as an option.
 - Canvas re-encode **drops EXIF/GPS automatically** — surface this in the UI as a
   privacy feature ("metadata removed on export").
-- Ordering: export must run after `document.fonts.ready` and all emoji bitmaps
-  are loaded; gate the button on a `ready` flag rather than throwing.
+- **Export gates on "an image is loaded" — never on the whole asset catalogue.**
+  The original spec said "gate on a `ready` flag" for all emoji bitmaps; one
+  undecodable file then disabled export entirely, which is the same failure class
+  as the competitor refusing to open a photo. A missing bitmap degrades to a
+  placeholder and is reported in `#export-status`. (No font dependency: the
+  stickers are SVG/bitmap assets, not glyphs — the `document.fonts.ready` clause in
+  the first draft was wrong and is removed.)
 
 ### Interaction (v1)
 
@@ -103,13 +145,24 @@ the pixel scale factor → `canvas.toBlob(mime, quality)` → download as
 |---|---|
 | Add sticker | click on canvas with a tool active (emoji / blur / mosaic) |
 | Select | click a sticker |
-| Move | drag body; arrows nudge 1 px @preview scale (Shift = 10) |
+| Move | drag body; arrows nudge 1 **preview** px (Shift = 10 preview px), converted to natural px |
 | Resize | 8 handles; corners keep ratio, `Shift` frees it |
 | Rotate | handle above top-centre; snap to 15° with `Shift` |
 | Delete | `Delete`/`Backspace` or layer-list ✕ |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z`, toolbar buttons |
 | Bring forward / back | `[` / `]` |
-| Zoom preview | `+` / `-` / `0` (fit) |
+
+Open interaction issues (spec debt, not yet fixed):
+
+- **Nudge granularity degrades on large photos.** "1 preview px" is ~1.3 natural
+  px at preview scale 0.77, but on a 40 MP image one preview px is tens of natural
+  px, so arrow-key placement gets coarse exactly where precision matters. Decide:
+  nudge in natural px (with Shift as the coarse step) or allow sub-preview-pixel
+  steps. Nothing gates this today.
+- **Zoom (`+` / `-` / `0`) is NOT implemented.** It appeared in the first draft of
+  this table and was never built; removed from the table as backlog. Add it with a
+  gate if it is wanted, because zoom re-opens the overlay projection
+  (`cssPoint = origin + backingPoint * previewScale` is the only place it may live).
 
 Undo = command pattern in `store.js`: each mutation pushes `{undo(), redo()}`;
 cap the stack at 100; coalesce a drag into ONE entry (push on pointerup, not per
@@ -139,9 +192,9 @@ highest-value manual-mode feature: a family photo set is 10 near-identical shots
 | # | Deliverable | Gate | State |
 |---|---|---|---|
 | **M0** | repo, README, LICENSE, index.html canvas, image upload, draggable emoji sticker | upload → drag → export PNG | **done** |
-| **M1** | handles + rotate, undo, layer list, blur + mosaic kinds, full-res export, keyboard | `npm test` + browser probe green | **done** (after the fix below) |
+| **M1** | handles + rotate, undo, layer list, blur + mosaic kinds, full-res export, keyboard | `npm test` + browser probe green | **done** (after the decode fix) |
 | **M2** | emoji picker (curated Twemoji set), custom image sticker, "same layout next photo" | probe + manual batch of 3 photos | **done**; batch flow needs a manual pass |
-| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 12/12, exit 0 | **done**, except CI |
+| **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 15/15 + `selection-probe` 6/6, exit 0 | **done**, except CI |
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
@@ -160,33 +213,71 @@ It is a real browser, a real file upload and real pixel assertions — see
   emoji and doubled listeners, masked by each instance re-rendering the layer list
   from its own store. Both fixed (decode through `<img>` + offscreen canvas, export
   gated on "image loaded" with a degraded-asset fallback, single init), regression
-  test added, probe now 12/12. Lesson recorded in `AGENTS.md` and
-  `docs/AGENT-WORKFLOW.md`: a green unit suite is not the app working.
+  test added.
+- **2026-11-13** — a screenshot of the running app (not a test) found defect (c):
+  the preview canvas CSS box was 875×778 for a 1200×800 backing store, stretching
+  the photo ~33%, with the stage 1594 px tall in a 913 px viewport. Fixed
+  (distortion 1.0005, portrait included); gated by `previewAspectPreserved` +
+  `canvasFitsViewport`. Main probe 15/15.
+- **2026-11-13** — user-reported defect (d): the selection frame did not wrap the
+  emoji — measured +45 px right, +39 px down, 106×34 px oversized. The emoji itself
+  is drawn exactly where clicked (centre error 0.00). Two causes: the overlay was
+  projected in backing pixels instead of CSS pixels (scale not applied / wrong
+  origin), and the default sticker box is non-square in pixels while square art is
+  drawn inside it. Fix in progress under `stickerface-frame`; gated by
+  `tests/e2e/selection-probe.js` (frame vs the emoji's own pixels, before and after
+  a real handle drag). Lesson: the first version of that probe "passed" resize
+  because synthetic pointer events cannot drive handles — handle drags must use
+  real CDP input.
+- Recurring lesson, recorded in `AGENTS.md` and `docs/AGENT-WORKFLOW.md`: a green
+  unit suite is not the app working.
 
 ## Acceptance criteria for M1 (what "done" means)
 
-1. `python3 -m http.server 8000` (or any static server) → page loads with zero
-   console errors and zero network requests after first load.
+Kept as written (they are the original contract); the ones the harness actually
+enforces today are noted, and the rest are manual.
+
+1. A static server serves the page with zero console errors and **no network
+   requests after the initial asset load**. *(enforced: the probe fails on any
+   console error or uncaught exception; `no-network` is manual.)*
 2. Upload a 40 MP JPEG → preview stays interactive; export returns a PNG with the
-   same dimensions as the source and no EXIF.
-3. Place emoji + blur + mosaic stickers; each survives export at full resolution
-   in the same relative position (verify by pixel-diff of the exported file).
+   same dimensions as the source and no EXIF. *(dimensions + no-EXIF enforced at
+   1200×800; the 40 MP case is manual.)*
+3. Place emoji + blur + mosaic stickers; each survives export at full resolution in
+   the same relative position. *(enforced: `stickerAreaChanged` +
+   `untouchedAreaIntact`; per-kind positioning is spot-checked, not exhaustive.)*
 4. Undo/redo restores state across ≥20 operations, including one whole drag.
-5. `npm test` (vitest) passes: geometry round-trips at 640×480, 1920×1080,
-   8000×5000; hit-test selects the topmost sticker at an overlap; rotate handle
-   maths is stable at 0/90/180/270°.
+   *(enforced in `tests/store.test.js`; one-drag-one-entry is unit-tested, a real
+   drag's undo is manual.)*
+5. `npm test` passes: geometry round-trips at 640×480, 1920×1080, 8000×5000;
+   hit-test selects the topmost sticker and respects rotation; handle maths stable
+   at 0/90/180/270°. *(enforced; 58 tests as of 2026-11-13.)*
 6. Keyboard-only workflow: place a sticker, nudge, rotate, delete, undo.
-7. Works in Chromium and Firefox; Safari best-effort.
+   *(partially enforced: nudge + undo are in the probe; delete/rotate are manual.)*
+7. Works in Chromium and Firefox; Safari best-effort. *(Chromium enforced by the
+   harness. **Firefox has never been run** — the harness is Chrome-only, so this
+   criterion is unverified, not satisfied.)*
+
+Additional criteria added after real defects (all enforced):
+preview aspect ratio preserved, preview fits the viewport, the selection frame
+wraps the drawn sticker, the frame follows a real handle drag, no duplicate
+initialisation.
 
 ## Testing
 
-- **Unit (vitest, node env, no DOM)** — `geometry.js` only. Everything geometric
-  must be testable without a browser; that's why it's a separate pure module.
-- **E2E (Playwright, M3)** — real upload → drag → export → assert the downloaded
-  file's dimensions and that pixels outside the sticker bbox are unchanged.
-- **Manual checklist** — HEVC `.mov` frame (should still load as an image via
-  `<img>`? no — document that video is out of scope), EXIF-rotated JPEG, 40 MP
-  photo, non-Latin filename, 400%-zoom display scaling.
+- **Unit (vitest, node env, no DOM)** — `geometry.js`, `store.js`, and the SVG
+  raster fallback. Everything geometric must be testable without a browser; that is
+  why it is a separate pure module.
+- **Acceptance (real headless Chrome over CDP, M3)** — `scripts/e2e.sh` runs
+  `tests/e2e/probe.js` (15 criteria: upload → place → nudge → undo → export, with
+  pixel assertions) and `tests/e2e/selection-probe.js` (6 criteria: frame vs the
+  emoji's own pixels, before and after a real handle drag). Handle drags must use
+  CDP `Input.dispatchMouseEvent` — synthetic pointer events cannot drive them.
+- **Diagnostic probes** — `layout-probe.js` (preview box vs backing aspect, stage
+  vs viewport, picker thumbnails) reports numbers for triage; it is not a gate.
+- **Manual checklist** — 40 MP photo; EXIF-rotated JPEG; non-Latin filename;
+  400 % display scaling; Firefox and Safari (unverified today). Video is out of
+  scope, so an HEVC `.mov` is expected to fail as a photo input.
 
 ## Risks
 
