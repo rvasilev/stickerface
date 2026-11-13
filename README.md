@@ -21,15 +21,40 @@ python3 -m http.server 8000      # file:// does NOT work (ES modules)
 
 ## Features
 
-- Click to drop an emoji sticker, drag / resize / rotate it
-- Blur and mosaic (pixelate) patches with adjustable strength
-- Full-resolution export (PNG or JPEG) — **EXIF and GPS are dropped on export**
-- Batch workflow: "apply this layout to the next photo"
-- Undo/redo, keyboard nudging, layer ordering
-- Zero network activity after the page loads
+v1 manual placement (images only — video is not supported):
+
+- Three sticker kinds: **emoji** (curated Twemoji set, plus "use my own
+  image" custom stickers), **blur** patches (adjustable strength and corner
+  radius) and **mosaic** (pixelate) patches
+- Click to drop, drag to move, 8 resize handles (corners keep aspect,
+  `Shift` frees it) and a rotate handle (`Shift` snaps to 15°)
+- Full-resolution export: PNG (default) or JPEG (quality 0.92), always
+  composited at the source's natural size — **EXIF and GPS are dropped on
+  export**
+- "Apply layout to next photo": keeps the normalized sticker layout for the
+  next image, warns if the aspect ratio differs by more than 5%
+- Undo/redo (command pattern, one entry per drag), layer list with
+  forward/back ordering, keyboard nudging (1 px / 10 px with `Shift`),
+  `Delete` to remove, `[` / `]` to reorder
+- Drag-and-drop a photo onto the stage; preview is capped at a 1600 px
+  long edge so even a 40 MP photo stays interactive
+- Zero network activity after the page loads; zero console errors on a
+  plain static-server load
 
 Roadmap: automatic face detection (v2) via a self-hosted MediaPipe BlazeFace
 model. Video is explicitly out of scope.
+
+## Development
+
+```bash
+NODE_ENV=development npm install --include=dev
+npx vitest run          # geometry + store unit tests (node, no DOM)
+python3 -m http.server 8000   # manual check — file:// will NOT work (ES modules)
+```
+
+`js/geometry.js` is pure (no DOM, no canvas) and is the only module
+unit-tested in node. `js/store.js` holds all state in normalized
+coordinates; pixel conversion happens only at the render/export edge.
 
 ## Privacy
 
