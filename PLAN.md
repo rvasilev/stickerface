@@ -122,6 +122,46 @@ offset, and never apply the scale twice). The frame must wrap the sticker that i
 actually drawn: the gate re-measures the emoji's pixels in the preview canvas and
 compares (`frameMatchesStickerOnScreen`).
 
+### Touch / mobile gesture model (decided 2026-11-13)
+
+A phone screen is too small to both scroll the photo and manipulate stickers, so
+the gesture split is explicit and testable:
+
+| Gesture on the canvas | Meaning |
+|---|---|
+| **1 finger** | sticker operations: tap on empty canvas to place, drag a sticker to move, drag a handle to resize/rotate |
+| **2 fingers** | scroll/pan the **image**; never adds, moves, resizes or selects a sticker |
+| any finger outside the canvas | normal page scrolling (the panels, not the photo) |
+
+Rules:
+
+- **Gesture arbitration, not last-pointer-wins.** Track active pointers on the
+  canvas. Exactly one pointer → sticker mode. **A second pointer landing cancels
+  any in-flight sticker gesture and returns that sticker to its geometry at
+  gesture start**, then the two pointers pan the image. A gesture that *begins*
+  with two fingers never enters sticker mode.
+- **Pan is view state, not document state**: `view = { dx, dy }` in CSS pixels,
+  applied only inside the shared projection
+  (`cssPoint = canvasRect.origin + backingPoint * previewScale + view`). A pan must
+  not touch sticker geometry, the selection, or the undo stack. Keep a `scale` hook
+  in the same object so pinch-zoom (backlog) cannot be bolted on elsewhere.
+- **Clamp the pan** so the image can never be pushed entirely out of the viewport
+  (keep at least a quarter of it visible).
+- **Place-on-tap must survive the gesture split**: placement happens on
+  `pointerup` when the gesture stayed within ~8 CSS px of its start and was not
+  cancelled by a second finger — otherwise a pan attempt drops stickers.
+- `touch-action: none` stays on the canvas and its overlay only, so the page still
+  scrolls everywhere else.
+- The handles are touch targets too: each needs a hit area ≥ 32 CSS px and must not
+  throw when driven by a touch (`resizeRect: unknown handle "undefined"` was an
+  uncaught exception under touch emulation).
+- Pinch-zoom is **backlog**; pan alone satisfies the request.
+
+Gate: `scripts/e2e-mobile.sh` — emulated 390×844 touch device, real CDP touch
+events, verified from canvas pixels (`tests/e2e/mobile-probe.js`): tap places, one
+finger moves the sticker without moving the image, two fingers pan the image
+without moving/resizing/adding a sticker, and a second finger cancels a drag.
+
 ### Export
 
 `export.js`: fresh canvas at natural size → draw base → draw each sticker with
@@ -196,6 +236,7 @@ highest-value manual-mode feature: a family photo set is 10 near-identical shots
 | **M2** | emoji picker (curated Twemoji set), custom image sticker, "same layout next photo" | probe + manual batch of 3 photos | **done**; batch flow needs a manual pass |
 | **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 15/15 + `selection-probe` 6/6, exit 0 | **done**, except CI |
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
+| **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `scripts/e2e-mobile.sh` = 9/9, desktop probes still green | **in progress** |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so

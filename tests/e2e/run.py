@@ -61,6 +61,19 @@ async def main(probe_path, url_match="8123"):
 
         await send("Runtime.enable")
         await send("Page.enable")
+
+        # Mobile emulation must be applied BEFORE the reload so layout, media
+        # queries and touch behaviour are the ones a phone sees.
+        mobile = os.environ.get("E2E_MOBILE") == "1"
+        if mobile:
+            await send("Emulation.setDeviceMetricsOverride", {
+                "width": int(os.environ.get("E2E_MOBILE_W", "390")),
+                "height": int(os.environ.get("E2E_MOBILE_H", "844")),
+                "deviceScaleFactor": 2,
+                "mobile": True,
+            })
+            await send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 5})
+
         await send("Page.reload", {"ignoreCache": True})
         await asyncio.sleep(2.5)
 
@@ -140,6 +153,55 @@ async def main(probe_path, url_match="8123"):
                     })
                     rotate_result = read2["result"]["result"].get("value")
 
+        # Touch phase: a probe may arm `window.__sfNextInput` with a list of
+        # touch steps, then report through `window.__sfReadTouch()`. Real touch
+        # events only exist via CDP Input.dispatchTouchEvent (and only when touch
+        # emulation is on), so gesture behaviour cannot be tested from page JS.
+        touch_result = None
+        touch_json = await send("Runtime.evaluate", {
+            "expression": "window.__sfNextInput ? JSON.stringify(window.__sfNextInput) : null",
+            "awaitPromise": True, "returnByValue": True, "timeout": 20000,
+        })
+        touch_steps = touch_json["result"]["result"].get("value")
+        if touch_steps:
+            try:
+                steps = json.loads(touch_steps)
+            except Exception:
+                steps = None
+            if steps:
+                for step in steps:
+                    kind = step.get("t")
+                    pts = step.get("pts") or []
+                    if kind == "settle":
+                        await asyncio.sleep(float(step.get("ms", 200)) / 1000)
+                        continue
+                    if kind == "read":
+                        # mid-sequence measurement: the page writes into
+                        # window.__sfSnaps under this name; the final reader
+                        # returns all snapshots.
+                        await send("Runtime.evaluate", {
+                            "expression": f"window.__sfSnap && window.__sfSnap({json.dumps(step.get('name', 'snap'))})",
+                            "awaitPromise": True, "returnByValue": True, "timeout": 20000,
+                        })
+                        continue
+                    touch_points = [
+                        {"x": p[0], "y": p[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": i}
+                        for i, p in enumerate(pts)
+                    ]
+                    if kind == "touchStart":
+                        await send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": touch_points})
+                    elif kind == "touchMove":
+                        await send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": touch_points})
+                    elif kind == "touchEnd":
+                        await send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": touch_points})
+                    await asyncio.sleep(float(step.get("ms", 60)) / 1000)
+                await asyncio.sleep(0.5)
+                read3 = await send("Runtime.evaluate", {
+                    "expression": "window.__sfReadTouch ? window.__sfReadTouch() : null",
+                    "awaitPromise": True, "returnByValue": True, "timeout": 20000,
+                })
+                touch_result = read3["result"]["result"].get("value")
+
         try:
             while True:
                 events.append(json.loads(await asyncio.wait_for(ws.recv(), timeout=0.4)))
@@ -187,8 +249,9 @@ async def main(probe_path, url_match="8123"):
             if isinstance(v, bool):
                 checks[k] = v
 
-    # Phase-2 (real-input drag) results, when the probe asked for one.
-    for label, raw in (("drag phase", drag_result), ("rotate phase", rotate_result)):
+    # Phase-2 (real-input) results: drag / rotate (mouse) and touch.
+    for label, raw in (("drag phase", drag_result), ("rotate phase", rotate_result),
+                       ("touch phase", touch_result)):
         if not raw:
             continue
         try:
@@ -200,7 +263,7 @@ async def main(probe_path, url_match="8123"):
             for k, v in second.get("steps", []):
                 print(f"{k}: {json.dumps(v)}")
             for e in second.get("errors", []):
-                print("DRAG ERROR: " + e)
+                print("PHASE ERROR: " + e)
             for k, v in second.items():
                 if isinstance(v, bool):
                     checks[k] = v
