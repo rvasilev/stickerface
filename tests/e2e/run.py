@@ -199,10 +199,13 @@ async def main(probe_path, url_match="8123"):
                             "awaitPromise": True, "returnByValue": True, "timeout": 20000,
                         })
                         continue
-                    if kind in ("click", "move"):
+                    if kind in ("click", "move", "hold"):
                         # Real mouse input: a double click MUST come through the
                         # browser (clickCount 1 then 2) — a synthetic `dblclick`
                         # event proves nothing about the handler being wired.
+                        # `hold` keeps the button DOWN for holdMs before releasing,
+                        # which is the only way to observe interval-driven repeat:
+                        # a click releases before any repeat can fire.
                         x, y = pts[0]
                         if kind == "move":
                             await send("Input.dispatchMouseEvent", {
@@ -217,6 +220,8 @@ async def main(probe_path, url_match="8123"):
                                 "type": "mousePressed", "x": x, "y": y, "button": "left",
                                 "buttons": 1, "clickCount": count,
                             })
+                            if kind == "hold":
+                                await asyncio.sleep(float(step.get("holdMs", 900)) / 1000)
                             await send("Input.dispatchMouseEvent", {
                                 "type": "mouseReleased", "x": x, "y": y, "button": "left",
                                 "buttons": 0, "clickCount": count,
