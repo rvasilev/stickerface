@@ -161,3 +161,32 @@ describe('Store — 20-operation deterministic chain', () => {
     }
   });
 });
+
+describe('Store — double-click net-zero (place then delete)', () => {
+  it('place then delete is two undo steps returning to the same state', () => {
+    const { store } = makeStore();
+    const before = JSON.stringify(store.state.stickers);
+    const added = store.add({ kind: 'emoji', cx: 0.3, cy: 0.3 });
+    store.remove(added.id);
+    expect(JSON.stringify(store.state.stickers)).toBe(before);
+    // Undo both -> same state again (undo stack not corrupted).
+    store.undo(); // restores the deleted sticker
+    expect(store.state.stickers).toHaveLength(1);
+    expect(store.state.stickers[0].id).toBe(added.id);
+    store.undo(); // undoes the add
+    expect(JSON.stringify(store.state.stickers)).toBe(before);
+    // Redo both -> nets to empty again.
+    store.redo();
+    expect(store.state.stickers).toHaveLength(1);
+    store.redo();
+    expect(JSON.stringify(store.state.stickers)).toBe(before);
+  });
+
+  it('removing the selected sticker clears the selection', () => {
+    const { store } = makeStore();
+    const a = store.add({ kind: 'emoji' });
+    expect(store.state.selection).toBe(a.id);
+    store.remove(a.id);
+    expect(store.state.selection).toBeNull();
+  });
+});

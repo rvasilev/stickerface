@@ -19,6 +19,7 @@ import {
   rotateTo,
   nudge,
   clampViewPan,
+  isDoubleTap,
 } from './geometry.js';
 import { EMOJI } from './emoji.js';
 
@@ -60,6 +61,12 @@ export class CanvasApp {
     this._tap = null; // {x, y, t, cancelled}
     // In-progress two-finger pan: {start: {x, y} centroid, startView}.
     this._pan = null;
+    // Last completed tap (touch double-tap delete needs 350ms/25px windowing
+    // inside this router — a separate listener would race pan arbitration).
+    this._lastTap = null;
+    // Last pointerup point, so a browser dblclick can hit-test the SAME
+    // point the placement pass just used (dblclick has no client coords).
+    this._lastUp = null;
 
     this._bindEls();
     this._buildPicker();
@@ -213,6 +220,8 @@ export class CanvasApp {
     this._pointers.clear();
     this._pan = null;
     this._tap = null;
+    this._lastTap = null;
+    this._lastUp = null;
     const W = this.image.naturalWidth;
     const H = this.image.naturalHeight;
     const scale = Math.min(1, PREVIEW_LONG_EDGE / Math.max(W, H));
@@ -571,6 +580,8 @@ export class CanvasApp {
     // already holds the pre-drag snapshot from beginDrag()). The tap is also
     // cancelled — a pan attempt must never drop a sticker.
     if (this._tap) this._tap.cancelled = true;
+    // A second finger means this is a pan, not a tap — void double-tap history.
+    this._lastTap = null;
     if (this.drag) {
       this.store.cancelDrag();
       this.drag = null;
@@ -598,6 +609,9 @@ export class CanvasApp {
   _maybePlaceOnTap(e) {
     const tap = this._tap;
     this._tap = null;
+    // Remember the pointerup point for the browser dblclick that follows
+    // (desktop). dblclick has no client coords, so it hit-tests this point.
+    this._lastUp = { x: e.clientX, y: e.clientY };
     if (!tap || tap.cancelled || !this.image) return;
     const dx = e.clientX - tap.x;
     const dy = e.clientY - tap.y;
@@ -607,7 +621,41 @@ export class CanvasApp {
     // selection touch (already handled on pointerdown).
     const pt = this._canvasPoint(e);
     const hitId = hitTest(pt, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
-    if (hitId) return;
+    if (hitId) {
+      // Second tap inside the window on a sticker = double-tap delete.
+      // Desktop relies on the browser dblclick instead (see _removeTopmostAt);
+      // the pointerup double-tap guard below would also fire there, deleting
+      // TWICE would be wrong — desktop removes once via dblclick and its
+      // pointerup finds nothing left to hit. So only treat mouse pointerup as
+      // a double-tap here when no dblclick will come, i.e. never for mouse:
+      // the browser owns mouse double-click. Touch uses this path.
+      const isTouch = e.pointerType === 'touch' || e.pointerType === 'pen';
+      if (isTouch) {
+        const cur = { x: tap.x, y: tap.y, t: performance.now() };
+        // Use the pointerUP position for distance/window consistency.
+        cur.x = e.clientX; cur.y = e.clientY;
+        if (isDoubleTap(this._lastTap, cur)) {
+          this._lastTap = null;
+          this.store.remove(hitId);
+          return;
+        }
+      }
+    }
+    // Record this tap for the next double-tap decision. Only taps that are
+    // NOT cancelled by a second finger reach here (cancelled taps return
+    // above), satisfying "no second finger involved".
+    const curTap = { x: e.clientX, y: e.clientY, t: performance.now() };
+    // Seed the double-tap history on the FIRST tap (on sticker or empty);
+    // a fast second tap on empty places then deletes (net zero, SPEC rule 3)
+    // which is decided in the hit path above on the second tap's pointerup.
+    if (hitId) {
+      // Tapping a sticker records the tap; a follow-up fast tap deletes.
+      this._lastTap = curTap;
+      return;
+    }
+    // First tap on empty: record it so a fast second tap can delete the
+    // sticker this first tap places.
+    this._lastTap = curTap;
     const { tool } = this.store.state;
     if (tool !== 'emoji' && tool !== 'blur' && tool !== 'mosaic') {
       this.store.select(null);
@@ -662,8 +710,34 @@ export class CanvasApp {
     }
   }
 
+  _removeTopmostAt(x, y) {
+    if (!this.image) return false;
+    const pt = this._cssToCanvasPx(x, y);
+    // canvas px -> natural px (same conversion as _canvasPoint).
+    const nat = { x: pt.x / this.scale, y: pt.y / this.scale };
+    const hit = hitTest(nat, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
+    if (!hit) return false;
+    this.store.remove(hit);
+    // Remove also handles selection when the hit was selected (store.remove
+    // clears it). The overlay follows via onStateChange -> _draw.
+    this._lastTap = null;
+    return true;
+  }
+
   _bindPointer() {
     const canvas = this.els.canvas;
+
+    // Desktop double-click: browser's own click sequence decides this (the
+    // probe sends real CDP clickCount 1 then 2 and asserts the browser
+    // dblclick fires). Hit-test the topmost sticker at the pointerup point.
+    canvas.addEventListener('dblclick', (e) => {
+      if (!this.image) return;
+      const at = e.clientX != null && e.clientY != null
+        ? { x: e.clientX, y: e.clientY }
+        : this._lastUp;
+      if (!at) return;
+      this._removeTopmostAt(at.x, at.y);
+    });
 
     canvas.addEventListener('pointerdown', (e) => {
       if (!this.image) return;

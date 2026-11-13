@@ -341,3 +341,23 @@ export function nudge(sticker, dxPx, dyPx, imgW, imgH) {
     cy: norm(cyp, imgH),
   };
 }
+
+/**
+ * Pure double-tap windowing: decide whether a second tap completes a
+ * double-tap with a previous tap. Desktop uses the browser dblclick instead;
+ * touch must be decided by the gesture router with an explicit window so it
+ * cannot race the one-finger/two-finger arbitration.
+ * @param {{x:number,y:number,t:number}|null} prev previous tap (CSS px + ms clock)
+ * @param {{x:number,y:number,t:number}|null} cur current tap
+ * @param {{maxMs?:number, maxDistCssPx?:number}} [opts]
+ * @returns {boolean} true iff both taps are inside the window
+ */
+export function isDoubleTap(prev, cur, opts) {
+  if (!prev || !cur) return false;
+  const maxMs = Number.isFinite(opts?.maxMs) ? opts.maxMs : 350;
+  const maxDist = Number.isFinite(opts?.maxDistCssPx) ? opts.maxDistCssPx : 25;
+  if (![prev.x, prev.y, prev.t, cur.x, cur.y, cur.t].every(Number.isFinite)) return false;
+  const dt = cur.t - prev.t;
+  if (dt < 0 || dt > maxMs) return false;
+  return Math.hypot(cur.x - prev.x, cur.y - prev.y) <= maxDist;
+}

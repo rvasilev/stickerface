@@ -11,6 +11,7 @@ import {
   rotateTo,
   nudge,
   clampViewPan,
+  isDoubleTap,
 } from '../js/geometry.js';
 
 const SIZES = [
@@ -358,5 +359,32 @@ describe('undo/redo across 20 operations (spec: 20-op drag chain)', () => {
     }
     expect(sticker).toEqual(snapshots[20]);
     expect(stack.length).toBe(20);
+  });
+});
+
+describe('isDoubleTap (double-tap window)', () => {
+  it('is true inside 350ms and 25 CSS px', () => {
+    expect(isDoubleTap({ x: 100, y: 100, t: 0 }, { x: 100, y: 100, t: 350 })).toBe(true);
+    expect(isDoubleTap({ x: 100, y: 100, t: 0 }, { x: 108, y: 100, t: 200 })).toBe(true);
+    expect(isDoubleTap({ x: 100, y: 100, t: 0 }, { x: 100, y: 125, t: 200 })).toBe(true);
+    expect(isDoubleTap({ x: 100, y: 100, t: 0 }, { x: 117.6, y: 117.6, t: 100 })).toBe(true); // ~25px diag
+  });
+
+  it('is false outside the window', () => {
+    expect(isDoubleTap({ x: 100, y: 100, t: 0 }, { x: 100, y: 100, t: 351 })).toBe(false);
+    expect(isDoubleTap({ x: 100, y: 100, t: 0 }, { x: 126, y: 100, t: 200 })).toBe(false);
+    expect(isDoubleTap({ x: 100, y: 100, t: 0 }, { x: 100, y: 100, t: -1 })).toBe(false);
+    expect(isDoubleTap({ x: 100, y: 100, t: 0 }, { x: 110, y: 100, t: 400 })).toBe(false); // close but slow
+  });
+
+  it('tolerates missing/bad input without throwing', () => {
+    expect(isDoubleTap(null, { x: 0, y: 0, t: 0 })).toBe(false);
+    expect(isDoubleTap({ x: 0, y: 0, t: 0 }, null)).toBe(false);
+    expect(isDoubleTap({ x: 'a' }, { x: 0, y: 0, t: 0 })).toBe(false);
+  });
+
+  it('respects custom opts', () => {
+    expect(isDoubleTap({ x: 0, y: 0, t: 0 }, { x: 0, y: 0, t: 500 }, { maxMs: 600 })).toBe(true);
+    expect(isDoubleTap({ x: 0, y: 0, t: 0 }, { x: 0, y: 40, t: 100 }, { maxDistCssPx: 40 })).toBe(true);
   });
 });
