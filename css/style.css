@@ -289,17 +289,42 @@ kbd {
 .layer-row button {
   appearance: none;
   background: none;
+  /* A 24px hit area is below the 32px touch minimum WCAG targets; the row
+     order buttons are the controls you tap most, so they get the full 32. */
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 4px;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
+  flex: none;
 }
 .layer-row button:hover { border-color: var(--accent); }
 .layer-row .del:hover { border-color: var(--danger); color: var(--danger); }
+/* The grip is the drag source, so it owns the gesture: without
+   `touch-action: none` the browser claims the pointer for scrolling and
+   cancels the drag mid-way. This is the ONLY row that opts out — a tap
+   anywhere else in the row still selects. */
+.grip {
+  flex: none;
+  width: 1.6rem;
+  text-align: center;
+  cursor: grab;
+  touch-action: none;
+  color: var(--text-dim);
+}
+.layer-row.dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+.insertion {
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+}
 details > summary {
   list-style: none;
   cursor: pointer;

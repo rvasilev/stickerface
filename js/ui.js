@@ -495,6 +495,8 @@ export class CanvasApp {
       li.className = 'layer-row';
       li.setAttribute('aria-selected', st.id === this.store.state.selection ? 'true' : 'false');
 
+      li.appendChild(this._layerGrip(st.id));
+
       const label = document.createElement('span');
       label.className = 'label';
       label.textContent = labelFor(st);
@@ -530,6 +532,103 @@ export class CanvasApp {
       this._layerRows.push({ id: st.id, label });
       list.appendChild(li);
     }
+  }
+
+  /** The drag source. Decorative, never a button: the accessible reorder
+   *  path is the ⤴/⤵ buttons and `[`/`]`, so this pointer-only control
+   *  does not need a name. */
+  _layerGrip(id) {
+    const grip = document.createElement('span');
+    grip.className = 'grip';
+    grip.setAttribute('aria-hidden', 'true');
+    grip.textContent = '⠿';
+    grip.addEventListener('pointerdown', (e) => this._startLayerDrag(id, grip, e));
+    return grip;
+  }
+
+  /**
+   * Drag one row to restack it. The store commits exactly once, on
+   * pointerup: a `moveTo` emits `reorder`, which rebuilds every row, so
+   * committing per midpoint crossing would both spam the undo stack and
+   * pull the dragged row out from under the gesture. The target slot is
+   * therefore computed against the rows' static geometry and applied at
+   * drop, and the drop re-reads the array rather than trusting the index
+   * captured at press.
+   */
+  _startLayerDrag(id, grip, e) {
+    e.preventDefault();
+    const row = grip.parentElement;
+    const list = this.els.layerList;
+    // Static geometry for the gesture: the rows do not move until the drop.
+    const rows = Array.from(list.querySelectorAll('.layer-row'));
+    const others = rows.filter((r) => r !== row);
+    const pressY = e.clientY;
+
+    // Insertion slot: how many of the OTHER rows the pointer has passed.
+    // The dragged row is excluded, so its own transform can never re-rank
+    // the rows it is being scored against mid-gesture.
+    //
+    // The comparison is edge-based, not midpoint-based: a drop ON a row's
+    // centre is the common gesture (a pointer released exactly at the
+    // midpoint of the last row) and must register as having passed it.
+    // A centre-strict `>` there reads "not passed" and the whole drag
+    // becomes a no-op.
+    const slotFor = (y) => {
+      let slot = 0;
+      for (const r of others) {
+        const b = r.getBoundingClientRect();
+        if (y >= b.top + b.height / 2) slot++;
+      }
+      return slot;
+    };
+
+    let moved = false;
+    let lastY = pressY;
+    row.classList.add('dragging');
+    grip.setPointerCapture(e.pointerId);
+    const pressSlot = slotFor(pressY);
+
+    const move = (ev) => {
+      row.style.transform = `translateY(${ev.clientY - pressY}px)`;
+      const slot = slotFor(ev.clientY);
+      if (slot !== pressSlot) moved = true;
+      let line = list.querySelector('.insertion');
+      if (!line) {
+        line = document.createElement('div');
+        line.className = 'insertion';
+        list.appendChild(line);
+      }
+      // The line sits after the last row the pointer has crossed, at that
+      // row's static bottom — before the first row, at the list's top.
+      const othersRects = others.map((r) => r.getBoundingClientRect());
+      let at = 0;
+      for (let i = 0; i < othersRects.length; i++) {
+        if (ev.clientY > othersRects[i].top + othersRects[i].height / 2) {
+          at = othersRects[i].bottom - list.getBoundingClientRect().top;
+        }
+      }
+      line.style.transform = `translateY(${at}px)`;
+    };
+
+    const finish = (commit) => {
+      row.classList.remove('dragging');
+      row.style.transform = '';
+      list.querySelector('.insertion')?.remove();
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', up);
+      grip.removeEventListener('pointercancel', cancel);
+      if (!commit || !moved) return;
+      // Visual-to-array is THE conversion: the list is topmost-first and
+      // array index 0 is the bottom.
+      const ordered = this.store.orderedStickers();
+      const arrayIndex = ordered.length - 1 - slotFor(lastY);
+      this.store.moveTo(id, Math.max(0, Math.min(ordered.length - 1, arrayIndex)));
+    };
+    const up = (ev) => { lastY = ev.clientY; finish(true); };
+    const cancel = () => finish(false);
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', cancel);
   }
 
   _updateLayerTitles() {
