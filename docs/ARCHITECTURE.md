@@ -13,7 +13,8 @@ js/ui.js                entry (index.html loads this): CanvasApp — DOM wiring,
                         selected-sticker pad
 js/store.js             Store: state + command-pattern undo/redo + subscribe()
 js/geometry.js          PURE maths: px/norm, stickerRect, handlePositions,
-                        hitTest, resizeRect, rotateTo, nudge
+                        hitTest, resizeRect, rotateTo, angleDelta, snapAngle,
+                        nudge
 js/render.js            paint(), requestDraw() (rAF-coalesced), emoji bitmap
                         decoding with an SVG fallback, blur + mosaic effects
 js/export.js            capped-canvas export guard (maxCanvasPixels/exportSize,

@@ -5,9 +5,10 @@ name: CI
 # broken build could sit on main unnoticed.
 #
 # Scope note: only gates that are GREEN at this commit run here. The
-# sticker-transform (M6) and zoom (M7) probes are knowingly red while those
-# features are being implemented; a CI that fails for known reasons trains people
-# to ignore it. Add each one here in the same commit that makes it green.
+# sticker-transform (M6) probe is knowingly red while that feature is being
+# implemented; a CI that fails for known reasons trains people to ignore it. Add
+# each one here in the same commit that makes it green — zoom (M7), the
+# selected-sticker pad (M8) and the rotate grab have all landed that way.
 #
 # One launcher for every gate: scripts/e2e.sh (E2E_PROBE selects the probe,
 # E2E_MOBILE=1 the phone emulation). It also owns the Chrome flag fallback, which
@@ -102,4 +103,9 @@ jobs:
       - name: Gate — the selected sticker's pad
         env:
           E2E_PROBE: tests/e2e/pad-probe.js
+        run: bash scripts/e2e.sh
+
+      - name: Gate — the rotate handle rotates BY the drag, never to the pointer
+        env:
+          E2E_PROBE: tests/e2e/rotate-grab-probe.js
         run: bash scripts/e2e.sh

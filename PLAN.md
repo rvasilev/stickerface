@@ -386,6 +386,26 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — the rotate handle snapped the sticker 90° counter-clockwise on
+  the first move of a drag. The cause was structural, not a typo: the handle sits
+  above the sticker's centre, so the pointer's ABSOLUTE angle there is −90°, and
+  the move handler wrote that angle straight into `rot` — the sticker jumped TO
+  the pointer instead of rotating BY it. Rotation is now a delta accumulated per
+  pointer move (`angleDelta`), which also makes a sweep across ±PI continuous and
+  lets a sweep past 180° follow the hand rather than collapse to its short way
+  round. The same maths was duplicated in the handle's own move listener and in
+  the canvas listener; both now call one `_rotateFromDrag`. The gate was written
+  RED first and two criteria failed against the old code —
+  `tinyMoveAfterGrabDoesNotJump` at −90.01° and `wrapAcrossPiDoesNotSpin` at
+  +169.84° — so it can fail. Worth recording: the probe's FIRST version passed
+  three of its criteria **vacuously**. The drags used coordinates computed before
+  the gesture, and the select-box rotates with the sticker, so after the first
+  rotation the pointer missed the handle entirely and those drags measured nothing
+  (a `0` delta passes a bare "under 40°" check). Endpoints are now resolved from
+  the page at dispatch time and every criterion is guarded against a no-op
+  gesture. `scripts/e2e.sh` gained a `drag` step for this (real button-held,
+  interpolated moves, Shift modifier).
+
 - **2026-11-14** — the selected-sticker pad (M8). The trigger was measured, not
   guessed: at and below ~32 CSS px the 8 handles' hit areas (12 px marker + a 10 px
   `::before` inset) cover a sticker's whole interior, so a move drag is impossible —

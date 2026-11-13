@@ -287,6 +287,26 @@ export function focalZoomView(startView, focalStart, focalNow, startDist, curren
   );
 }
 
+/** Shortest signed rotation from one angle to another, radians in (-PI, PI].
+ *  A rotate drag accumulates these per pointer move: accumulating the deltas of
+ *  successive positions keeps a sweep across ±PI continuous and lets a sweep past
+ *  half a turn follow the hand, whereas subtracting the grab angle from the
+ *  current one would read any long sweep as its short way round.
+ *  @param {number} from @param {number} to @returns {number} radians in (-PI, PI] */
+export function angleDelta(from, to) {
+  let d = finite(to, 0) - finite(from, 0);
+  while (d <= -Math.PI) d += 2 * Math.PI;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  return d;
+}
+
+/** Round an angle to the nearest `step` — the 15° rotate snap. ONE definition of
+ *  the step, shared by the absolute projection and the accumulated drag.
+ *  @param {number} angle @param {number} [step] @returns {number} radians */
+export function snapAngle(angle, step = Math.PI / 12) {
+  return Math.round(finite(angle, 0) / step) * step;
+}
+
 /** Angle (radians, clockwise-positive) from centre to pointer; `snap` rounds it
  *  to the nearest 15°. @param {Pt} centrePx @param {Pt} pointerPx
  *  @param {boolean} [snap] @returns {number} radians in (-PI, PI] */
@@ -295,8 +315,7 @@ export function rotateTo(centrePx, pointerPx, snap = false) {
   const dy = finite(pointerPx?.y) - finite(centrePx?.y);
   let angle = Math.atan2(dy, dx);
   if (snap) {
-    const step = Math.PI / 12;
-    angle = Math.round(angle / step) * step;
+    angle = snapAngle(angle);
     // Keep the result in (-PI, PI]: rounding PI exactly stays PI.
     if (angle <= -Math.PI) angle += 2 * Math.PI;
     if (angle > Math.PI) angle -= 2 * Math.PI;

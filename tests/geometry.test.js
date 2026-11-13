@@ -9,6 +9,8 @@ import {
   hitTest,
   resizeRect,
   rotateTo,
+  angleDelta,
+  snapAngle,
   nudge,
   clampViewPan,
   clampViewScale,
@@ -389,6 +391,51 @@ describe('isDoubleTap (double-tap window)', () => {
   it('respects custom opts', () => {
     expect(isDoubleTap({ x: 0, y: 0, t: 0 }, { x: 0, y: 0, t: 500 }, { maxMs: 600 })).toBe(true);
     expect(isDoubleTap({ x: 0, y: 0, t: 0 }, { x: 0, y: 40, t: 100 }, { maxDistCssPx: 40 })).toBe(true);
+  });
+});
+
+describe('angleDelta (the wrap-safe rotation step)', () => {
+  it('is zero for an unchanged angle', () => {
+    expect(angleDelta(-Math.PI / 2, -Math.PI / 2)).toBeCloseTo(0, 12);
+  });
+
+  it('takes the short way round when the pointer crosses the ±PI axis', () => {
+    // 170° -> -170° is a +20° step, not -340°.
+    expect(angleDelta((170 * Math.PI) / 180, (-170 * Math.PI) / 180)).toBeCloseTo((20 * Math.PI) / 180, 12);
+    expect(angleDelta((-170 * Math.PI) / 180, (170 * Math.PI) / 180)).toBeCloseTo((-20 * Math.PI) / 180, 12);
+  });
+
+  it('never reports more than half a turn', () => {
+    for (let deg = -720; deg <= 720; deg += 7) {
+      expect(Math.abs(angleDelta(0, (deg * Math.PI) / 180))).toBeLessThanOrEqual(Math.PI + 1e-12);
+    }
+  });
+
+  it('makes the grab itself a zero step, so the handle does not jump', () => {
+    // The bug: the rotate handle sits above (cx, cy), so the pointer's ABSOLUTE
+    // angle there is -90°, and writing that into `rot` snapped the sticker. As a
+    // delta baseline it is free, and 2 px straight up stays 0°.
+    const grab = rotateTo({ x: 100, y: 100 }, { x: 100, y: 60 });
+    const nudged = rotateTo({ x: 100, y: 100 }, { x: 100, y: 58 });
+    expect(grab).toBeCloseTo(-Math.PI / 2, 12);
+    expect(angleDelta(grab, nudged)).toBeCloseTo(0, 12);
+  });
+});
+
+describe('snapAngle (the 15° rotate snap — one definition)', () => {
+  it('rounds to the nearest 15°', () => {
+    const step = Math.PI / 12;
+    expect(snapAngle((7 * Math.PI) / 180)).toBeCloseTo(0, 12);
+    expect(snapAngle((8 * Math.PI) / 180)).toBeCloseTo(step, 12);
+    expect(snapAngle((-225 * Math.PI) / 180)).toBeCloseTo((-225 * Math.PI) / 180, 12);
+  });
+
+  it('is exactly what rotateTo applies when asked to snap', () => {
+    const at = (deg) => ({
+      x: 100 + 100 * Math.cos((deg * Math.PI) / 180),
+      y: 100 + 100 * Math.sin((deg * Math.PI) / 180),
+    });
+    expect(rotateTo({ x: 100, y: 100 }, at(37), true)).toBeCloseTo(snapAngle((37 * Math.PI) / 180), 12);
   });
 });
 

@@ -43,6 +43,7 @@ probe must never read as success).
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
+| `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
 
 `layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js`,
 `diag-mobile-metrics-probe.js`, `diag-zoom-internals-probe.js` and

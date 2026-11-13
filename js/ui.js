@@ -17,6 +17,8 @@ import {
   hitTest,
   resizeRect,
   rotateTo,
+  angleDelta,
+  snapAngle,
   nudge,
   clampViewScale,
   focalZoomView,
@@ -943,10 +945,7 @@ export class CanvasApp {
         });
         this.store.move(st.id, patch);
       } else if (this.drag.mode === 'rotate') {
-        const cxp = px(st.cx, this.image.naturalWidth);
-        const cyp = px(st.cy, this.image.naturalHeight);
-        const angle = rotateTo({ x: cxp, y: cyp }, pt, Boolean(e.shiftKey));
-        this.store.move(st.id, { rot: angle });
+        this._rotateFromDrag(st, pt, Boolean(e.shiftKey));
       }
       this._draw();
     });
@@ -996,6 +995,19 @@ export class CanvasApp {
   }
 
   /**
+   * Rotate the sticker by ONE pointer move, as a delta from the previous move.
+   * `rawRot` accumulates so a sweep past 180° keeps following the hand, and Shift
+   * snaps the RESULT (the sticker's own rotation), never the pointer's angle.
+   */
+  _rotateFromDrag(st, pt, snap) {
+    const centre = { x: px(st.cx, this.image.naturalWidth), y: px(st.cy, this.image.naturalHeight) };
+    const now = rotateTo(centre, pt, false);
+    this.drag.rawRot += angleDelta(this.drag.lastAngle, now);
+    this.drag.lastAngle = now;
+    this.store.move(st.id, { rot: snap ? snapAngle(this.drag.rawRot) : this.drag.rawRot });
+  }
+
+  /**
    * Drive one resize/rotate drag. The handle owns its pointer for the drag's
    * lifetime; `_cancelHandleDrag` lets the pan path abandon it (a second finger
    * landing) so the orphaned `up` cannot unregister that pointer twice.
@@ -1015,7 +1027,19 @@ export class CanvasApp {
     const handle = el.dataset.handle;
     if (!handle) return;
     this.drag = handle === 'rotate'
-      ? { mode: 'rotate', id: st.id }
+      // Rotation accumulates a DELTA per move. The handle sits above the centre,
+      // so the pointer's absolute angle at the grab is -90°: writing that in
+      // directly snapped the sticker to -90° the moment the drag began.
+      ? {
+        mode: 'rotate',
+        id: st.id,
+        lastAngle: rotateTo(
+          { x: px(st.cx, this.image.naturalWidth), y: px(st.cy, this.image.naturalHeight) },
+          this._canvasPoint(e),
+          false,
+        ),
+        rawRot: st.rot || 0,
+      }
       : { mode: 'resize', id: st.id, handle, keepAspect: !e.shiftKey };
     this.store.beginDrag(st.id);
     this._activeHandlePointerId = e.pointerId;
@@ -1030,9 +1054,7 @@ export class CanvasApp {
       // ev.target can be an inner element or the canvas.
       const pt = this._canvasPoint(ev);
       if (this.drag.mode === 'rotate') {
-        const cxp = px(st.cx, this.image.naturalWidth);
-        const cyp = px(st.cy, this.image.naturalHeight);
-        this.store.move(st.id, { rot: rotateTo({ x: cxp, y: cyp }, pt, Boolean(ev.shiftKey)) });
+        this._rotateFromDrag(st, pt, Boolean(ev.shiftKey));
       } else {
         this.store.move(
           st.id,

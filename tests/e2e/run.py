@@ -274,6 +274,53 @@ async def main(probe_path, url_match="8123"):
                             print(f"tapPagePoint: page returned {val!r}")
                         await asyncio.sleep(float(step.get("ms", 200)) / 1000)
                         continue
+                    if kind == "drag":
+                        # A real button-held drag with interpolated moves. The
+                        # top-level plan supports only two drags per probe, and a
+                        # handle drag needs a genuine pointer (setPointerCapture
+                        # throws without one) — `modifiers` carries Shift through
+                        # the whole gesture. `fns` resolves each endpoint from the
+                        # PAGE at dispatch time: a handle that moves with the
+                        # rotation cannot be addressed by coordinates computed
+                        # before the gesture.
+                        if step.get("fns"):
+                            live = []
+                            for fn in step["fns"]:
+                                rr = await send("Runtime.evaluate", {
+                                    "expression": fn, "awaitPromise": True,
+                                    "returnByValue": True, "timeout": 20000,
+                                })
+                                v = rr["result"]["result"].get("value")
+                                if not isinstance(v, list) or len(v) < 2:
+                                    print(f"drag: fns returned {v!r}")
+                                    live = None
+                                    break
+                                live.append((float(v[0]), float(v[1])))
+                            if live is None:
+                                continue
+                            pts = live
+                        (dx0, dy0), (dx1, dy1) = pts[0], pts[1]
+                        mods = int(step.get("modifiers", 0))
+                        n = int(step.get("steps", 8))
+                        base = {"button": "left", "buttons": 1, "clickCount": 1, "modifiers": mods}
+                        await send("Input.dispatchMouseEvent", {
+                            "type": "mouseMoved", "x": dx0, "y": dy0, "button": "none", "modifiers": mods,
+                        })
+                        await send("Input.dispatchMouseEvent", {
+                            "type": "mousePressed", "x": dx0, "y": dy0, **base,
+                        })
+                        for i in range(1, n + 1):
+                            await send("Input.dispatchMouseEvent", {
+                                "type": "mouseMoved", "modifiers": mods, "buttons": 1,
+                                "x": dx0 + (dx1 - dx0) * i / n,
+                                "y": dy0 + (dy1 - dy0) * i / n,
+                            })
+                            await asyncio.sleep(0.02)
+                        await send("Input.dispatchMouseEvent", {
+                            "type": "mouseReleased", "x": dx1, "y": dy1, **base,
+                        })
+                        await asyncio.sleep(float(step.get("ms", 150)) / 1000)
+                        continue
                     touch_points = [
                         {"x": p[0], "y": p[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": pid}
                         for pid, p in zip(ids_for(len(pts)), pts)
