@@ -19,6 +19,8 @@ import {
   rotateTo,
   nudge,
   clampViewPan,
+  clampViewScale,
+  focalZoomView,
   isDoubleTap,
 } from './geometry.js';
 import { PointerTracker } from './pointer-tracker.js';
@@ -47,9 +49,10 @@ export class CanvasApp {
     this.pendingLayout = null; // "apply layout to next photo"
     this.lastPickedSrc = EMOJI[0]?.path ?? '';
     this.drag = null;
-    // Pan is view state (CSS px). Kept OUT of the store on purpose: a pan must
-    // not touch sticker geometry, the selection, or the undo stack. `scale` is
-    // the pinch-zoom hook (backlog; always 1 today).
+    // Pan is view state (CSS px). Kept OUT of the store on purpose: a pan
+    // must not touch sticker geometry, the selection, or the undo stack.
+    // `scale` is the pinch-zoom hook: M7 two-finger image zoom lives in the
+    // same object (focal zoom, clamped 1…8, still never touches the store).
     this.view = { dx: 0, dy: 0, scale: 1 };
     // Active canvas pointers (client/CSS coords). Exactly one -> sticker
     // mode; two or more -> view (pan) mode. Last-pointer-wins is what moved
@@ -63,7 +66,9 @@ export class CanvasApp {
     // gesture stayed within ~8 CSS px and under ~500 ms and was never
     // cancelled by a second pointer — otherwise a pan attempt drops a sticker.
     this._tap = null; // {x, y, t, cancelled}
-    // In-progress two-finger pan: {start: {x, y} centroid, startView}.
+    // In-progress two-finger pan zoom: {start: {x, y} centroid, startView,
+    // focalStart, startDist} — the focal anchors are the CURRENT centroid
+    // and CURRENT two-finger distance (rect-relative CSS px) at gesture start.
     this._pan = null;
     // Last completed tap (touch double-tap delete needs 350ms/25px windowing
     // inside this router — a separate listener would race pan arbitration).
@@ -301,26 +306,30 @@ export class CanvasApp {
 
   /* ---------- projection: THE one place css <-> image math happens ---------- */
 
-  // cssPoint = canvasRect.origin + backingPoint * previewScale + view
+  // cssPoint = canvasRect.origin + backingPoint * previewScale * view.scale + view.dx/dy
   // previewScale = canvasCssW / canvasW (CSS px per canvas px).
   // Paint, the selection frame, and hit-testing all go through here — never a
-  // second offset anywhere. Pan (view.dx/dy, CSS px) is applied in this ONE
-  // place; export passes view 0,0 (it composites at natural size).
+  // second offset anywhere. Pan (view.dx/dy, CSS px) and pinch-zoom
+  // (view.scale, 1…8) are applied in this ONE place; export passes view
+  // 0,0,scale 1 (it composites at natural size).
   _previewScale() {
     const r = this.els.canvas.getBoundingClientRect();
     if (!r.width || !this.canvasW) return 0;
     return r.width / this.canvasW;
   }
 
-  // CSS px -> canvas px, subtracting the view pan.
+  // CSS px -> canvas px, subtracting the view pan and dividing by the zoom:
+  // the inverse of the one projection, so placement and hit-testing track a
+  // zoomed image without a second conversion.
   _cssToCanvasPx(x, y) {
     const r = this.els.canvas.getBoundingClientRect();
     if (!r.width || !r.height) return { x: 0, y: 0 };
     const sx = r.width / this.canvasW;
     const sy = r.height / this.canvasH;
+    const z = clampViewScale(this.view.scale);
     return {
-      x: (x - r.left - this.view.dx) / sx,
-      y: (y - r.top - this.view.dy) / sy,
+      x: (x - r.left - this.view.dx) / (sx * z),
+      y: (y - r.top - this.view.dy) / (sy * z),
     };
   }
 
@@ -340,11 +349,13 @@ export class CanvasApp {
   }
 
   _canvasPxView() {
-    // paint() wants the offset in canvas px; this.view is CSS px.
+    // paint() wants the offset in canvas px; this.view is CSS px. The zoom
+    // scales the drawn image, so it must be scaled back here too and used
+    // as the transform the paint applies (see render.js paint()).
     const r = this.els.canvas.getBoundingClientRect();
     const sx = r.width > 0 ? r.width / this.canvasW : 1;
     const sy = r.height > 0 ? r.height / this.canvasH : 1;
-    return { dx: this.view.dx / sx, dy: this.view.dy / sy };
+    return { dx: this.view.dx / sx, dy: this.view.dy / sy, scale: clampViewScale(this.view.scale) };
   }
 
   /* ---------- painting + selection chrome ---------- */
@@ -385,12 +396,13 @@ export class CanvasApp {
     // backingScale (canvasW / cssW); rect is in natural px, so multiply by
     // the combined factor to reach CSS px. Using this.scale alone would size
     // the frame in backing px — the "handles not around the emoji" bug.
-    // The ONE projection also adds `view` (CSS px pan) here: the frame must
-    // travel with the panned image, not stay where the canvas box is.
+    // The ONE projection also carries the zoom (view.scale) here: the frame
+    // must travel AND grow with the zoomed image, and the same factor sizes
+    // it — a frame that only panned would stop wrapping the drawn sticker.
     const rect = stickerRect(st, this.image.naturalWidth, this.image.naturalHeight);
     const canvasRect = this.els.canvas.getBoundingClientRect();
     const backingScale = canvasRect.width > 0 ? this.canvasW / canvasRect.width : 1;
-    const k = this.scale / backingScale;
+    const k = (this.scale / backingScale) * clampViewScale(this.view.scale);
     const cw = rect.w * k;
     const ch = rect.h * k;
     const bx = rect.x * k + this.view.dx;
@@ -624,18 +636,45 @@ export class CanvasApp {
     // handle element (not the canvas) and would keep firing on their own
     // pointermove. They already gate on `if (!this.drag) return`, which is
     // now false, so they no-op — same effect, no extra cleanup needed.
+    // The zoom anchors are the CURRENT centroid and the CURRENT two-finger
+    // distance, both in rect-relative CSS px (the space the projection
+    // subtracts the canvas origin from). focalZoomView() derives every later
+    // frame from these start values, so accumulating per-event drift is
+    // impossible by construction.
     const start = this._centroid();
-    this._pan = { start, startView: { ...this.view } };
+    const rect = this.els.canvas.getBoundingClientRect();
+    const focalStart = { x: start.x - rect.left, y: start.y - rect.top };
+    const pts = this._pointers.values();
+    const startDist = pts.length >= 2
+      ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+      : 0;
+    this._pan = { start, startView: { ...this.view }, focalStart, startDist };
     this.els.canvas.dataset.panning = '1';
   }
 
   _applyPanMove() {
     if (!this._pan) return;
     const c = this._centroid();
-    const dx = c.x - this._pan.start.x;
-    const dy = c.y - this._pan.start.y;
-    this.view = { ...this._pan.startView, dx: this._pan.startView.dx + dx, dy: this._pan.startView.dy + dy };
-    this._panClamp();
+    const rect = this.els.canvas.getBoundingClientRect();
+    const focalNow = { x: c.x - rect.left, y: c.y - rect.top };
+    const pts = this._pointers.values();
+    const currentDist = pts.length >= 2
+      ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+      : this._pan.startDist;
+    // Focal zoom: the image point under the centroid at gesture start stays
+    // under it. Derived from the start distance/scale/offset every frame, so
+    // a moving centroid pans and a widening distance zooms — together. This
+    // is view state only: it never touches sticker geometry, selection, or
+    // the undo stack.
+    this.view = focalZoomView(
+      this._pan.startView,
+      this._pan.focalStart,
+      focalNow,
+      this._pan.startDist,
+      currentDist,
+      rect.width || this.canvasW,
+      rect.height || this.canvasH,
+    );
     this._draw();
   }
 
@@ -833,7 +872,11 @@ export class CanvasApp {
     canvas.addEventListener('pointermove', (e) => {
       if (!this._pointers.has(e.pointerId)) {
         // A capture-steering artifact: this pointer was never down on the
-        // canvas (e.g. a handle captured it). It must not drive the sticker.
+        // canvas (e.g. a handle captured it). It must not drive the sticker
+        // — but a two-finger gesture already armed in pan mode must still
+        // see it as a bearing on the view, or a finger that leaves a handle
+        // mid-pinch is invisible to the zoom.
+        if (this._pan) this._applyPanMove();
         return;
       }
       this._registerPointer(e.pointerId, e.clientX, e.clientY);
@@ -952,6 +995,9 @@ export class CanvasApp {
           el.removeEventListener('pointermove', move);
           el.removeEventListener('pointerup', up);
           el.removeEventListener('pointercancel', up);
+          canvas.removeEventListener('pointermove', move);
+          canvas.removeEventListener('pointerup', up);
+          canvas.removeEventListener('pointercancel', up);
           this._unregisterPointer(e.pointerId);
           this._activeHandlePointerId = null;
           this.drag = null;
@@ -960,6 +1006,13 @@ export class CanvasApp {
         el.addEventListener('pointermove', move);
         el.addEventListener('pointerup', up);
         el.addEventListener('pointercancel', up);
+        // A finger that LEAVES the handle under touch is not owned by the
+        // handle element, so the canvas-level pointermove is the only place
+        // its moves are ever delivered during a two-finger gesture. Both
+        // subscriptions share one `up` so the drag ends exactly once.
+        canvas.addEventListener('pointermove', move);
+        canvas.addEventListener('pointerup', up);
+        canvas.addEventListener('pointercancel', up);
       });
     }
     // Safety-net listeners must be registered AFTER the handles so a handle

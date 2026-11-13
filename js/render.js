@@ -439,9 +439,11 @@ function boxBlurScratch(baseCanvas, rx, ry, rw, rh, dx, dy, dw, dh) {
 
 /**
  * Paint one frame: base image, then stickers in ascending z.
- * view: pan offset in CANVAS px (cssPoint = origin + backing*previewScale + view).
- * The preview passes view.dx/dy converted from CSS px; export always passes 0,0
- * (export composites at natural size, never panned).
+ * view: pan offset in CANVAS px plus the view zoom (canvas px per natural px
+ * multiplied by view.scale — the same factor the ui.js projection uses).
+ * The preview passes dx/dy converted from CSS px and the clamped scale;
+ * export always passes a missing/zero view (export composites at natural
+ * size, never panned or zoomed) so no zoom ever leaks into the exported PNG.
  * @param {CanvasRenderingContext2D} ctx
  * @param {object} opts
  * @param {HTMLImageElement} opts.image base image (naturalWidth/Height)
@@ -453,7 +455,8 @@ function boxBlurScratch(baseCanvas, rx, ry, rw, rh, dx, dy, dw, dh) {
  * @param {number} opts.imgW natural image width
  * @param {number} opts.imgH natural image height
  * @param {number} opts.scale canvas px per natural px
- * @param {{dx?:number, dy?:number}} [opts.view] pan offset in canvas px (default 0,0)
+ * @param {{dx?:number, dy?:number, scale?:number}} [opts.view] pan offset in canvas px
+ *   (default 0,0) plus view zoom (default 1)
  * @param {HTMLCanvasElement} [opts.baseCanvas] pre-staged base at canvas size
  * @param {object} [opts.selection] {id} — draws the selection chrome in ui.js,
  *   never here (keep render dumb).
@@ -461,34 +464,39 @@ function boxBlurScratch(baseCanvas, rx, ry, rw, rh, dx, dy, dw, dh) {
 export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, imgW, imgH, scale, baseCanvas, view }) {
   const viewDx = Number.isFinite(view?.dx) ? view.dx : 0;
   const viewDy = Number.isFinite(view?.dy) ? view.dy : 0;
+  // Clamp the zoom the same way the projection does (1…8, non-positive or
+  // non-finite -> 1), so paint and overlay can never disagree on scale.
+  const viewScale = Number.isFinite(view?.scale) && view.scale > 0
+    ? Math.min(8, Math.max(1, view.scale))
+    : 1;
+  const effScale = scale * viewScale;
   ctx.save();
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.restore();
 
   if (!image || !imgW || !imgH) return;
-  const dw = px(1, imgW) * scale;
-  const dh = px(1, imgH) * scale;
+  const dw = px(1, imgW) * effScale;
+  const dh = px(1, imgH) * effScale;
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(image, viewDx, viewDy, dw, dh);
   ctx.restore();
 
-  // Base canvas for blur/mosaic source sampling (in canvas px, PANNED frame).
-  // The base must be sampled through the same view offset as the destination
-  // canvas, so draw it offset. Height/width cover the canvas plus the pan
-  // extent so patches near an edge still sample valid base pixels.
+  // Base canvas for blur/mosaic source sampling (in canvas px, UNSCALED but
+  // panned-frame). The destination is translated by viewDx/viewDy below, so
+  // the base keeps its own unpanned full-image space at `scale` and the
+  // blur/mosaic helpers — which read source rects in that space — need no
+  // zoom awareness: the whole sticker draw (including the source sampling,
+  // which happens inside the translated transform) is scaled by the outer
+  // transform, exactly as the base image draw is. Export passes no view, so
+  // effScale === scale there and the composite is unaffected.
   let base = baseCanvas;
   if (!base) {
-    // Base is dw×dh (image-sized), drawn offset by viewDx/viewDy. Sample with
-    // the offset baked in below via getImageData coords — but blur/mosaic
-    // draw from `base` with 9-arg drawImage reading rect.x/rect.y (canvas px
-    // in unpanned space). To keep those helpers unchanged we keep `base` in
-    // its own unpanned full-image space and let the panned draw offset only
-    // the base image + stickers (stickers sample base by source rect, so blur /
-    // mosaic source sampling must NOT be shifted — only the destination is).
+    const baseW = Math.round(px(1, imgW) * scale);
+    const baseH = Math.round(px(1, imgH) * scale);
     base = document.createElement('canvas');
-    base.width = Math.round(dw);
-    base.height = Math.round(dh);
+    base.width = baseW;
+    base.height = baseH;
     const bctx = base.getContext('2d');
     bctx.drawImage(image, 0, 0, base.width, base.height);
   }
@@ -498,7 +506,13 @@ export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, 
 
   for (const sticker of stickers ?? []) {
     ctx.save();
+    // ONE transform for the whole sticker, including blur/mosaic source
+    // sampling: translate by the view pan, then scale by the view zoom about
+    // the canvas origin. This is the paint half of the single projection —
+    // the same scale the overlay and hit-testing use — so stickers ride the
+    // zoomed image and blur/mosaic sample the zoomed base consistently.
     ctx.translate(viewDx, viewDy);
+    ctx.scale(viewScale, viewScale);
     if (sticker.kind === 'emoji') {
       drawEmoji(ctx, sticker, bitmaps?.get(sticker.src), imgW, imgH, scale, customBitmaps, fallback?.get(sticker.src));
     } else if (sticker.kind === 'custom') {

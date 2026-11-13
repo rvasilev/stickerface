@@ -11,6 +11,10 @@ import {
   rotateTo,
   nudge,
   clampViewPan,
+  clampViewScale,
+  focalZoomView,
+  VIEW_MIN_SCALE,
+  VIEW_MAX_SCALE,
   isDoubleTap,
 } from '../js/geometry.js';
 
@@ -386,5 +390,93 @@ describe('isDoubleTap (double-tap window)', () => {
   it('respects custom opts', () => {
     expect(isDoubleTap({ x: 0, y: 0, t: 0 }, { x: 0, y: 0, t: 500 }, { maxMs: 600 })).toBe(true);
     expect(isDoubleTap({ x: 0, y: 0, t: 0 }, { x: 0, y: 40, t: 100 }, { maxDistCssPx: 40 })).toBe(true);
+  });
+});
+
+describe('clampViewScale (pinch zoom range)', () => {
+  it('clamps to 1…8 with 1 as the fit floor', () => {
+    expect(clampViewScale(1)).toBe(1);
+    expect(clampViewScale(3)).toBe(3);
+    expect(clampViewScale(0.5)).toBe(1);
+    expect(clampViewScale(0)).toBe(1);
+    expect(clampViewScale(100)).toBe(8);
+    expect(VIEW_MIN_SCALE).toBe(1);
+    expect(VIEW_MAX_SCALE).toBe(8);
+  });
+
+  it('falls back to 1 for non-finite input instead of inverting the projection', () => {
+    expect(clampViewScale(NaN)).toBe(1);
+    expect(clampViewScale(Infinity)).toBe(1);
+    expect(clampViewScale(undefined)).toBe(1);
+  });
+});
+
+describe('clampViewPan with scale', () => {
+  it('clamps scale to 1…8 while clamping the offset against the SCALED image', () => {
+    // 400x300 at scale 2: allowance is 75% of 800x600.
+    expect(clampViewPan({ dx: 5000, dy: -5000, scale: 2 }, 400, 300)).toEqual({
+      dx: 600, dy: -450, scale: 2,
+    });
+    expect(clampViewPan({ dx: 5000, dy: 5000, scale: 100 }, 400, 300).scale).toBe(8);
+    expect(clampViewPan({ dx: 5000, dy: 5000, scale: 0 }, 400, 300).scale).toBe(1);
+  });
+
+  it('at scale 1 this is exactly the old 75%-of-CSS-box pan clamp', () => {
+    expect(clampViewPan({ dx: 5000, dy: -5000, scale: 1 }, 400, 300)).toEqual({
+      dx: 300, dy: -225, scale: 1,
+    });
+  });
+
+  it('lets a focal zoom reach a large negative offset at high zoom (not snapped to the 1x clamp)', () => {
+    // Focal zoom at scale 3 about a centre focal derives dx = -400 for a
+    // 390-wide image; the 1x clamp (-292.5) would snap the focal point.
+    const v = focalZoomView({ dx: 0, dy: 0, scale: 1 }, { x: 100, y: 100 }, { x: 100, y: 100 }, 30, 90, 390, 260);
+    expect(v.scale).toBe(3);
+    expect(v.dx).toBe(-200);
+    expect(v.dy).toBe(-200);
+  });
+});
+
+describe('focalZoomView (pure focal derivation)', () => {
+  it('keeps the image point under the focal point fixed while zooming', () => {
+    const startView = { dx: 0, dy: 0, scale: 1 };
+    const focal = { x: 100, y: 100 };
+    const v = focalZoomView(startView, focal, focal, 30, 90, 390, 260);
+    expect(v.scale).toBe(3);
+    // Image point under focal at start: (100-0)/1 = 100. At the end it must
+    // still map to the focal: focal - point*scale = 100 - 100*3 = -200.
+    expect(v.dx).toBe(-200);
+    expect(v.dy).toBe(-200);
+    // Round-trip through the projection: (focal - dx)/scale === start point.
+    expect((focal.x - v.dx) / v.scale).toBeCloseTo(100, 9);
+    expect((focal.y - v.dy) / v.scale).toBeCloseTo(100, 9);
+  });
+
+  it('reduces to a plain pan when the finger distance is unchanged', () => {
+    const v = focalZoomView({ dx: 10, dy: 20, scale: 1 }, { x: 100, y: 100 }, { x: 160, y: 140 }, 60, 60, 390, 260);
+    expect(v).toEqual({ dx: 70, dy: 60, scale: 1 });
+  });
+
+  it('clamps both ends: zooming in past 8 stays at 8, out past 1 stays at 1', () => {
+    const big = focalZoomView({ dx: 0, dy: 0, scale: 1 }, { x: 195, y: 130 }, { x: 195, y: 130 }, 30, 300, 390, 260);
+    expect(big.scale).toBe(8);
+    const small = focalZoomView({ dx: 0, dy: 0, scale: 1 }, { x: 195, y: 130 }, { x: 195, y: 130 }, 300, 6, 390, 260);
+    expect(small.scale).toBe(1);
+    // At scale 1 the offset must still be inside the pan clamp (no blast-off).
+    expect(Math.abs(small.dx)).toBeLessThanOrEqual(0.75 * 390);
+    expect(Math.abs(small.dy)).toBeLessThanOrEqual(0.75 * 260);
+  });
+
+  it('derives from start values only (a longer pinch does not accumulate drift)', () => {
+    const a = focalZoomView({ dx: 0, dy: 0, scale: 1 }, { x: 195, y: 130 }, { x: 195, y: 130 }, 30, 90, 390, 260);
+    const b = focalZoomView({ dx: 0, dy: 0, scale: 1 }, { x: 195, y: 130 }, { x: 195, y: 130 }, 30, 90, 390, 260);
+    expect(a).toEqual(b);
+    // scale = startScale * k, not the product of per-step ratios.
+    expect(a.scale).toBe(3);
+  });
+
+  it('handles zero/degenerate distances without throwing', () => {
+    expect(focalZoomView({ dx: 0, dy: 0, scale: 2 }, { x: 10, y: 10 }, { x: 20, y: 20 }, 0, 90, 390, 260).scale).toBe(2);
+    expect(focalZoomView(undefined, { x: 0, y: 0 }, { x: 0, y: 0 }, 30, 90, 390, 260).scale).toBe(3);
   });
 });

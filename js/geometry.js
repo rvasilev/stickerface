@@ -275,29 +275,93 @@ export function resizeRect(sticker, handle, pointerPx, imgW, imgH, keepAspect) {
   };
 }
 
+/** Minimum pinch-zoom: 1 means fit-to-viewport, the layout the user first sees. */
+export const VIEW_MIN_SCALE = 1;
+/** Maximum pinch-zoom of the photo (view only; sticker geometry is unaffected). */
+export const VIEW_MAX_SCALE = 8;
+
+/**
+ * Clamp a view scale to the pinch-zoom range 1…8. Non-finite / non-positive
+ * values fall back to 1 (fit), never to 0 — a 0 scale would invert the
+ * projection and make the image vanish from the canvas.
+ * @param {number} scale
+ * @returns {number} clamped scale
+ */
+export function clampViewScale(scale) {
+  return Math.min(VIEW_MAX_SCALE, Math.max(VIEW_MIN_SCALE, finite(scale, VIEW_MIN_SCALE)));
+}
+
 /**
  * Clamp a pan offset so the image can never be pushed entirely out of view.
- * Keeps at least 25% of the image visible in each axis: the offset (CSS px,
- * the view's dx/dy) is limited to 75% of the image's CSS size. `scale` is
- * carried through untouched so pinch-zoom (backlog) keeps a home in `view`.
+ * Keeps at least 25% of the (zoomed) image visible in each axis: the offset
+ * (CSS px, the view's dx/dy) is limited to 75% of the SCALED image's CSS
+ * size. At scale 1 this is exactly the old pan clamp (75% of the CSS box),
+ * so panning at fit behaves as before; at scale > 1 the allowance grows
+ * with the scaled image, which is what focal zoom needs — an edge clamp of
+ * [cssW - scaledW, 0] at scale >= 1 would forbid panning at 1x entirely
+ * and would snap the focal point for a pinch that starts from a pan.
+ * `scale` is clamped to 1…8 (see clampViewScale) and carried through.
  * @param {{dx:number, dy:number, scale?:number}} view pan offset in CSS px
- * @param {number} cssW image CSS width px
- * @param {number} cssH image CSS height px
+ * @param {number} cssW image CSS width px (at scale 1)
+ * @param {number} cssH image CSS height px (at scale 1)
  * @returns {{dx:number, dy:number, scale:number}} clamped view
  */
 export function clampViewPan(view, cssW, cssH) {
   const dx = finite(view?.dx);
   const dy = finite(view?.dy);
-  const scale = finite(view?.scale, 1) || 1;
+  const scale = clampViewScale(view?.scale);
   const w = finite(cssW);
   const h = finite(cssH);
-  const maxX = w > 0 ? w * 0.75 : 0;
-  const maxY = h > 0 ? h * 0.75 : 0;
+  const maxX = w > 0 ? (w * scale) * 0.75 : 0;
+  const maxY = h > 0 ? (h * scale) * 0.75 : 0;
   return {
     dx: Math.max(-maxX, Math.min(maxX, dx)),
     dy: Math.max(-maxY, Math.min(maxY, dy)),
     scale,
   };
+}
+
+/**
+ * Focal (pinch) zoom: the view for the current gesture state, derived ONLY
+ * from the gesture's start values — never accumulated per event, so a pinch
+ * cannot drift. The image point that was under the focal (centroid) point at
+ * gesture start stays under the focal point now, which is also what makes a
+ * moving centroid pan the image at the same time as it zooms.
+ *
+ * With focal points in canvas-CSS coordinates (relative to the canvas rect
+ * origin), the image point under the focal at start is
+ * `(focalStart - startDx) / startScale` (in backing*preview units), and the
+ * new offset follows from demanding that same point sit under `focalNow`:
+ *   scale = clamp(startScale * currentDist / startDist, 1, 8)
+ *   dx    = focalNow.x - (focalStart.x - startDx) * (scale / startScale)
+ * (same for dy). When the distance is unchanged this reduces to a plain pan:
+ * dx = startDx + (focalNow.x - focalStart.x).
+ * @param {{dx:number, dy:number, scale?:number}} startView view at gesture start
+ * @param {Pt} focalStart gesture centroid at start, canvas-CSS px (relative origin)
+ * @param {Pt} focalNow gesture centroid now, canvas-CSS px (relative origin)
+ * @param {number} startDist two-finger distance at start (CSS px)
+ * @param {number} currentDist two-finger distance now (CSS px)
+ * @param {number} cssW image CSS width px (at scale 1)
+ * @param {number} cssH image CSS height px (at scale 1)
+ * @returns {{dx:number, dy:number, scale:number}} clamped view
+ */
+export function focalZoomView(startView, focalStart, focalNow, startDist, currentDist, cssW, cssH) {
+  const startScale = clampViewScale(startView?.scale);
+  const sd = finite(startDist);
+  const cd = finite(currentDist);
+  const scale = sd > 0 && cd > 0 ? clampViewScale(startScale * (cd / sd)) : startScale;
+  const k = scale / startScale;
+  const startDx = finite(startView?.dx);
+  const startDy = finite(startView?.dy);
+  const fsx = finite(focalStart?.x);
+  const fsy = finite(focalStart?.y);
+  const fnx = finite(focalNow?.x);
+  const fny = finite(focalNow?.y);
+  return clampViewPan(
+    { dx: fnx - (fsx - startDx) * k, dy: fny - (fsy - startDy) * k, scale },
+    cssW,
+    cssH,
+  );
 }
 
 /**
