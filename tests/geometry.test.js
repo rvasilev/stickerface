@@ -10,6 +10,7 @@ import {
   resizeRect,
   rotateTo,
   nudge,
+  clampViewPan,
 } from '../js/geometry.js';
 
 const SIZES = [
@@ -287,6 +288,31 @@ describe('nudge', () => {
     const out = nudge(parked({ cx: 0, cy: 0 }), 192, 54, 1920, 1080);
     expect(out.cx).toBeCloseTo(0.1, 12);
     expect(out.cy).toBeCloseTo(0.05, 12);
+  });
+});
+
+describe('clampViewPan', () => {
+  it('keeps pan within 75% of the CSS box (25% visible)', () => {
+    const v = clampViewPan({ dx: 5000, dy: -5000, scale: 1 }, 400, 300);
+    expect(v.dx).toBe(300); // 0.75 * 400
+    expect(v.dy).toBe(-225); // -0.75 * 300
+    expect(v.scale).toBe(1);
+  });
+
+  it('passes small pans through unchanged and carries scale (pinch hook)', () => {
+    const v = clampViewPan({ dx: 12, dy: -8, scale: 1.5 }, 400, 300);
+    expect(v).toEqual({ dx: 12, dy: -8, scale: 1.5 });
+  });
+
+  it('tolerates missing/zero dimensions without throwing', () => {
+    expect(clampViewPan({ dx: 10, dy: 10 }, 0, 0)).toEqual({ dx: 0, dy: 0, scale: 1 });
+    expect(clampViewPan(undefined, 400, 300)).toEqual({ dx: 0, dy: 0, scale: 1 });
+  });
+
+  it('keeps the sample pans from the mobile gate inside the clamp', () => {
+    // The gate pans 60/40 CSS px on a 390×260 box; clamp is 292.5/195 — free.
+    const v = clampViewPan({ dx: 60, dy: 40, scale: 1 }, 390, 260);
+    expect(v).toEqual({ dx: 60, dy: 40, scale: 1 });
   });
 });
 

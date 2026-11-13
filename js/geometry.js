@@ -1,6 +1,8 @@
 // Pure geometry for StickerFace. No DOM, no canvas, no globals, no imports.
 // All sticker coordinates are NORMALIZED (0..1 relative to image width/height);
-// pixel math happens only at the render/export edge via px()/norm().
+// pixel math happens only at the render/export edge via px()/norm(). View pan
+// (clampViewPan) is in CSS px — the projection owner (ui.js) converts between
+// CSS px and canvas px; this module only clamps the offset values.
 //
 // Screen coordinates: canvas space, +x right, +y down. Rotation is radians,
 // clockwise-positive (matching ctx.rotate): a point rotated +90° points down.
@@ -270,6 +272,31 @@ export function resizeRect(sticker, handle, pointerPx, imgW, imgH, keepAspect) {
     cy: norm(outCyPx, H),
     w: norm(newW, W),
     h: norm(newH, H),
+  };
+}
+
+/**
+ * Clamp a pan offset so the image can never be pushed entirely out of view.
+ * Keeps at least 25% of the image visible in each axis: the offset (CSS px,
+ * the view's dx/dy) is limited to 75% of the image's CSS size. `scale` is
+ * carried through untouched so pinch-zoom (backlog) keeps a home in `view`.
+ * @param {{dx:number, dy:number, scale?:number}} view pan offset in CSS px
+ * @param {number} cssW image CSS width px
+ * @param {number} cssH image CSS height px
+ * @returns {{dx:number, dy:number, scale:number}} clamped view
+ */
+export function clampViewPan(view, cssW, cssH) {
+  const dx = finite(view?.dx);
+  const dy = finite(view?.dy);
+  const scale = finite(view?.scale, 1) || 1;
+  const w = finite(cssW);
+  const h = finite(cssH);
+  const maxX = w > 0 ? w * 0.75 : 0;
+  const maxY = h > 0 ? h * 0.75 : 0;
+  return {
+    dx: Math.max(-maxX, Math.min(maxX, dx)),
+    dy: Math.max(-maxY, Math.min(maxY, dy)),
+    scale,
   };
 }
 

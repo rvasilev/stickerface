@@ -139,6 +139,7 @@ kbd {
   cursor: crosshair;
 }
 .canvas-wrap canvas[data-dragging] { cursor: grabbing; }
+.canvas-wrap canvas[data-panning] { cursor: grabbing; }
 
 .select-box {
   position: absolute;
@@ -148,15 +149,24 @@ kbd {
 }
 .select-box .handle {
   position: absolute;
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
   background: var(--surface);
   border: 1.5px solid var(--accent);
-  border-radius: 3px;
+  border-radius: 6px;
   padding: 0;
   pointer-events: auto;
+  touch-action: none;
   cursor: nwse-resize;
+}
+.select-box .handle::after {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
 }
 .handle[data-handle='nw'] { left: 0; top: 0; }
 .handle[data-handle='n']  { left: 50%; top: 0; cursor: ns-resize; }
@@ -168,10 +178,20 @@ kbd {
 .handle[data-handle='w']  { left: 0; top: 50%; cursor: ew-resize; }
 .handle.rotate {
   left: 50%;
-  top: -28px;
+  top: -32px;
   border-radius: 50%;
   background: var(--accent);
   cursor: grab;
+}
+.handle.rotate::after {
+  inset: auto;
+  width: 14px;
+  height: 14px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--surface);
 }
 
 /* Right panel */

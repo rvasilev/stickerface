@@ -261,6 +261,10 @@ function drawEmoji(ctx, sticker, bitmap, imgW, imgH, scale, customBitmaps, fallb
  * inset source draw, and the rotation share one frame. The blur is applied
  * to the SOURCE pixels drawn into that frame (ctx.filter filters the draw
  * itself), which keeps rotated and un-rotated patches identical in structure.
+ *
+ * `baseCanvas` must hold the full image at this scale in its own (unpanned)
+ * space. The panned destination grid is handled by the caller's translate()
+ * wrapping this draw.
  */
 function drawBlur(ctx, sticker, baseCanvas, imgW, imgH, scale) {
   const rect = stickerRect(sticker, imgW, imgH);
@@ -435,6 +439,9 @@ function boxBlurScratch(baseCanvas, rx, ry, rw, rh, dx, dy, dw, dh) {
 
 /**
  * Paint one frame: base image, then stickers in ascending z.
+ * view: pan offset in CANVAS px (cssPoint = origin + backing*previewScale + view).
+ * The preview passes view.dx/dy converted from CSS px; export always passes 0,0
+ * (export composites at natural size, never panned).
  * @param {CanvasRenderingContext2D} ctx
  * @param {object} opts
  * @param {HTMLImageElement} opts.image base image (naturalWidth/Height)
@@ -446,11 +453,14 @@ function boxBlurScratch(baseCanvas, rx, ry, rw, rh, dx, dy, dw, dh) {
  * @param {number} opts.imgW natural image width
  * @param {number} opts.imgH natural image height
  * @param {number} opts.scale canvas px per natural px
+ * @param {{dx?:number, dy?:number}} [opts.view] pan offset in canvas px (default 0,0)
  * @param {HTMLCanvasElement} [opts.baseCanvas] pre-staged base at canvas size
  * @param {object} [opts.selection] {id} — draws the selection chrome in ui.js,
  *   never here (keep render dumb).
  */
-export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, imgW, imgH, scale, baseCanvas }) {
+export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, imgW, imgH, scale, baseCanvas, view }) {
+  const viewDx = Number.isFinite(view?.dx) ? view.dx : 0;
+  const viewDy = Number.isFinite(view?.dy) ? view.dy : 0;
   ctx.save();
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.restore();
@@ -460,12 +470,22 @@ export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, 
   const dh = px(1, imgH) * scale;
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(image, 0, 0, dw, dh);
+  ctx.drawImage(image, viewDx, viewDy, dw, dh);
   ctx.restore();
 
-  // Base canvas for blur/mosaic source sampling (in canvas px).
+  // Base canvas for blur/mosaic source sampling (in canvas px, PANNED frame).
+  // The base must be sampled through the same view offset as the destination
+  // canvas, so draw it offset. Height/width cover the canvas plus the pan
+  // extent so patches near an edge still sample valid base pixels.
   let base = baseCanvas;
   if (!base) {
+    // Base is dw×dh (image-sized), drawn offset by viewDx/viewDy. Sample with
+    // the offset baked in below via getImageData coords — but blur/mosaic
+    // draw from `base` with 9-arg drawImage reading rect.x/rect.y (canvas px
+    // in unpanned space). To keep those helpers unchanged we keep `base` in
+    // its own unpanned full-image space and let the panned draw offset only
+    // the base image + stickers (stickers sample base by source rect, so blur /
+    // mosaic source sampling must NOT be shifted — only the destination is).
     base = document.createElement('canvas');
     base.width = Math.round(dw);
     base.height = Math.round(dh);
@@ -477,6 +497,8 @@ export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, 
   const scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true });
 
   for (const sticker of stickers ?? []) {
+    ctx.save();
+    ctx.translate(viewDx, viewDy);
     if (sticker.kind === 'emoji') {
       drawEmoji(ctx, sticker, bitmaps?.get(sticker.src), imgW, imgH, scale, customBitmaps, fallback?.get(sticker.src));
     } else if (sticker.kind === 'custom') {
@@ -486,5 +508,6 @@ export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, 
     } else if (sticker.kind === 'mosaic') {
       drawMosaic(ctx, sticker, base, imgW, imgH, scale, scratchCanvas, scratchCtx);
     }
+    ctx.restore();
   }
 }

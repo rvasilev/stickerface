@@ -18,6 +18,7 @@ import {
   resizeRect,
   rotateTo,
   nudge,
+  clampViewPan,
 } from './geometry.js';
 import { EMOJI } from './emoji.js';
 
@@ -44,6 +45,21 @@ export class CanvasApp {
     this.pendingLayout = null; // "apply layout to next photo"
     this.lastPickedSrc = EMOJI[0]?.path ?? '';
     this.drag = null;
+    // Pan is view state (CSS px). Kept OUT of the store on purpose: a pan must
+    // not touch sticker geometry, the selection, or the undo stack. `scale` is
+    // the pinch-zoom hook (backlog; always 1 today).
+    this.view = { dx: 0, dy: 0, scale: 1 };
+    // Active canvas pointers: Map<pointerId, {x, y}> in client (CSS) coords.
+    // Exactly one -> sticker mode; two or more -> view (pan) mode. Last-pointer
+    // -wins is what moved the sticker on the second finger, so the map IS the
+    // arbitration state.
+    this._pointers = new Map();
+    // Tap-to-place tracking. Placement happens on pointerup only when the
+    // gesture stayed within ~8 CSS px and under ~500 ms and was never
+    // cancelled by a second pointer — otherwise a pan attempt drops a sticker.
+    this._tap = null; // {x, y, t, cancelled}
+    // In-progress two-finger pan: {start: {x, y} centroid, startView}.
+    this._pan = null;
 
     this._bindEls();
     this._buildPicker();
@@ -192,6 +208,11 @@ export class CanvasApp {
 
   fitCanvas() {
     if (!this.image) return;
+    // A new image resets the pan: view is per-photo, never carried across.
+    this.view = { dx: 0, dy: 0, scale: 1 };
+    this._pointers.clear();
+    this._pan = null;
+    this._tap = null;
     const W = this.image.naturalWidth;
     const H = this.image.naturalHeight;
     const scale = Math.min(1, PREVIEW_LONG_EDGE / Math.max(W, H));
@@ -263,6 +284,54 @@ export class CanvasApp {
     canvas.style.height = `${Math.round(H * scale)}px`;
   }
 
+  /* ---------- projection: THE one place css <-> image math happens ---------- */
+
+  // cssPoint = canvasRect.origin + backingPoint * previewScale + view
+  // previewScale = canvasCssW / canvasW (CSS px per canvas px).
+  // Paint, the selection frame, and hit-testing all go through here — never a
+  // second offset anywhere. Pan (view.dx/dy, CSS px) is applied in this ONE
+  // place; export passes view 0,0 (it composites at natural size).
+  _previewScale() {
+    const r = this.els.canvas.getBoundingClientRect();
+    if (!r.width || !this.canvasW) return 0;
+    return r.width / this.canvasW;
+  }
+
+  // CSS px -> canvas px, subtracting the view pan.
+  _cssToCanvasPx(x, y) {
+    const r = this.els.canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return { x: 0, y: 0 };
+    const sx = r.width / this.canvasW;
+    const sy = r.height / this.canvasH;
+    return {
+      x: (x - r.left - this.view.dx) / sx,
+      y: (y - r.top - this.view.dy) / sy,
+    };
+  }
+
+  // Client (CSS) coords -> natural image px (geometry/hit-test space).
+  _canvasPoint(e) {
+    const c = this._cssToCanvasPx(e.clientX, e.clientY);
+    // canvas px -> natural px via this.scale (canvas px per natural px).
+    return { x: c.x / this.scale, y: c.y / this.scale };
+  }
+
+  _panClamp() {
+    const r = this.els.canvas.getBoundingClientRect();
+    // Clamp relative to the canvas CSS box (the visible image area).
+    const cssW = r.width || this.canvasW;
+    const cssH = r.height || this.canvasH;
+    this.view = clampViewPan(this.view, cssW, cssH);
+  }
+
+  _canvasPxView() {
+    // paint() wants the offset in canvas px; this.view is CSS px.
+    const r = this.els.canvas.getBoundingClientRect();
+    const sx = r.width > 0 ? r.width / this.canvasW : 1;
+    const sy = r.height > 0 ? r.height / this.canvasH : 1;
+    return { dx: this.view.dx / sx, dy: this.view.dy / sy };
+  }
+
   /* ---------- painting + selection chrome ---------- */
 
   _draw() {
@@ -278,6 +347,7 @@ export class CanvasApp {
         imgW: this.image.naturalWidth,
         imgH: this.image.naturalHeight,
         scale: this.scale,
+        view: this._canvasPxView(),
       });
       this._positionSelectionBox();
     });
@@ -300,14 +370,16 @@ export class CanvasApp {
     // backingScale (canvasW / cssW); rect is in natural px, so multiply by
     // the combined factor to reach CSS px. Using this.scale alone would size
     // the frame in backing px — the "handles not around the emoji" bug.
+    // The ONE projection also adds `view` (CSS px pan) here: the frame must
+    // travel with the panned image, not stay where the canvas box is.
     const rect = stickerRect(st, this.image.naturalWidth, this.image.naturalHeight);
     const canvasRect = this.els.canvas.getBoundingClientRect();
     const backingScale = canvasRect.width > 0 ? this.canvasW / canvasRect.width : 1;
     const k = this.scale / backingScale;
     const cw = rect.w * k;
     const ch = rect.h * k;
-    const bx = rect.x * k;
-    const by = rect.y * k;
+    const bx = rect.x * k + this.view.dx;
+    const by = rect.y * k + this.view.dy;
 
     box.hidden = false;
     // The chrome box is the UN-rotated rect (keeps handle buttons simple);
@@ -481,17 +553,113 @@ export class CanvasApp {
 
   /* ---------- pointer state machine ---------- */
 
-  _canvasPoint(e) {
-    const r = this.els.canvas.getBoundingClientRect();
-    // Pointer in natural px (store space is normalized; geometry is px-space
-    // for resize/hit-test). The canvas bitmap is canvasW/H, so map the CSS
-    // point into natural px via the scale factor.
-    const cssX = (e.clientX - r.left) * (this.canvasW / r.width);
-    const cssY = (e.clientY - r.top) * (this.canvasH / r.height);
-    return {
-      x: cssX / this.scale,
-      y: cssY / this.scale,
-    };
+  // The old _canvasPoint (now on the prototype above) maps client -> natural
+  // px including the view pan. Hit-test, resize and rotate all use it.
+
+  // --- arbitration helpers -------------------------------------------------
+  _centroid() {
+    const pts = [...this._pointers.values()];
+    if (!pts.length) return { x: 0, y: 0 };
+    let x = 0; let y = 0;
+    for (const p of pts) { x += p.x; y += p.y; }
+    return { x: x / pts.length, y: y / pts.length };
+  }
+
+  _enterPanMode() {
+    // A second pointer landed: cancel any in-flight sticker gesture and
+    // restore that sticker to its gesture-start geometry (Store.cancelDrag
+    // already holds the pre-drag snapshot from beginDrag()). The tap is also
+    // cancelled — a pan attempt must never drop a sticker.
+    if (this._tap) this._tap.cancelled = true;
+    if (this.drag) {
+      this.store.cancelDrag();
+      this.drag = null;
+      delete this.els.canvas.dataset.dragging;
+    }
+    // If the cancel targets a handle drag, its move/up handlers live on the
+    // handle element (not the canvas) and would keep firing on their own
+    // pointermove. They already gate on `if (!this.drag) return`, which is
+    // now false, so they no-op — same effect, no extra cleanup needed.
+    const start = this._centroid();
+    this._pan = { start, startView: { ...this.view } };
+    this.els.canvas.dataset.panning = '1';
+  }
+
+  _applyPanMove() {
+    if (!this._pan) return;
+    const c = this._centroid();
+    const dx = c.x - this._pan.start.x;
+    const dy = c.y - this._pan.start.y;
+    this.view = { ...this._pan.startView, dx: this._pan.startView.dx + dx, dy: this._pan.startView.dy + dy };
+    this._panClamp();
+    this._draw();
+  }
+
+  _maybePlaceOnTap(e) {
+    const tap = this._tap;
+    this._tap = null;
+    if (!tap || tap.cancelled || !this.image) return;
+    const dx = e.clientX - tap.x;
+    const dy = e.clientY - tap.y;
+    if (Math.hypot(dx, dy) > 8) return;
+    if (performance.now() - tap.t > 500) return;
+    // Only place on empty space with a place tool; otherwise this was a
+    // selection touch (already handled on pointerdown).
+    const pt = this._canvasPoint(e);
+    const hitId = hitTest(pt, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
+    if (hitId) return;
+    const { tool } = this.store.state;
+    if (tool !== 'emoji' && tool !== 'blur' && tool !== 'mosaic') {
+      this.store.select(null);
+      return;
+    }
+    const cx = norm(pt.x, this.image.naturalWidth);
+    const cy = norm(pt.y, this.image.naturalHeight);
+    if (tool === 'emoji') {
+      const src = this.lastPickedSrc;
+      const w = 0.18;
+      this.store.add({
+        kind: 'emoji',
+        src,
+        cx,
+        cy,
+        w,
+        h: (w * this.image.naturalWidth) / this.image.naturalHeight,
+        rot: 0,
+      });
+    } else {
+      this.store.add({ kind: tool, cx, cy, w: 0.28, h: 0.28, rot: 0 });
+    }
+    this.store.select(this.store.state.selection);
+  }
+
+  _endStickerGate(e) {
+    this._pointers.delete(e.pointerId);
+    if (this._pointers.size === 1) {
+      // Dropping from 2 -> 1: end the pan, reset the centroid anchor for the
+      // remaining finger so it does not jump, and end any pan tracking. The
+      // remaining finger is NOT promoted to a sticker drag — the gesture
+      // began as a pan and stays one until all fingers lift.
+      this._pan = null;
+      delete this.els.canvas.dataset.panning;
+      return;
+    }
+    if (this._pointers.size === 0) {
+      this._pan = null;
+      delete this.els.canvas.dataset.panning;
+      if (this._tap && !this._tap.cancelled) {
+        // Placement is evaluated on pointerup of the single-finger gesture.
+        this._maybePlaceOnTap(e);
+      } else {
+        this._tap = null;
+      }
+      if (this.drag) {
+        const wasMove = this.drag.mode === 'move';
+        this.drag = null;
+        delete this.els.canvas.dataset.dragging;
+        if (wasMove) this.store.commitDrag();
+      }
+    }
   }
 
   _bindPointer() {
@@ -499,53 +667,55 @@ export class CanvasApp {
 
     canvas.addEventListener('pointerdown', (e) => {
       if (!this.image) return;
-      canvas.setPointerCapture(e.pointerId);
-      const pt = this._canvasPoint(e);
-      const { tool } = this.store.state;
+      this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      // IMPORTANT: do NOT call setPointerCapture for touch pointers. Capturing
+      // pointer N on the canvas steers that pointer's moves to the canvas even
+      // when it belongs to a handle — the second finger landing on a handle
+      // must remain a handle event so the gesture can be cancelled, never
+      // re-targeted. Mouse/synthetic events have no touch path and historically
+      // need capture for drag-outside; capture is harmless there. Capture is
+      // therefore only for non-touch pointers, and it is released on pointerup.
+      if (e.pointerType !== 'touch') {
+        try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic probes */ }
+      }
 
-      // Selection hit-test first (zoomed: geometry is natural-px space).
+      if (this._pointers.size >= 2) {
+        // Two fingers: pan mode. Never enters sticker mode below.
+        this._enterPanMode();
+        return;
+      }
+
+      // Exactly one pointer: sticker mode.
+      const pt = this._canvasPoint(e);
+      this._tap = { x: e.clientX, y: e.clientY, t: performance.now(), cancelled: false };
+
       const hitId = hitTest(pt, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
       if (hitId) {
         const st = this.store.state.stickers.find((s) => s.id === hitId);
         this.store.select(hitId);
-        // Drag to move (unless a place tool is active and the user clicked
-        // empty space — handled below). Handles are DOM buttons, so canvas
-        // pointerdown only needs move-dragging; resize/rotate come from the
-        // handle buttons themselves.
         this.drag = { mode: 'move', id: hitId, start: pt, startCx: st.cx, startCy: st.cy };
         this.store.beginDrag(hitId);
         canvas.dataset.dragging = '1';
         return;
       }
-
-      // Empty space: drop a sticker at the point (needs a place tool).
-      if (tool === 'emoji' || tool === 'blur' || tool === 'mosaic') {
-        const cx = norm(pt.x, this.image.naturalWidth);
-        const cy = norm(pt.y, this.image.naturalHeight);
-        if (tool === 'emoji') {
-          const src = this.lastPickedSrc;
-          // Square in pixels (not normalized: h = w * imgW / imgH) so the
-          // frame wraps the drawn art on non-square photos.
-          const w = 0.18;
-          this.store.add({
-            kind: 'emoji',
-            src,
-            cx,
-            cy,
-            w,
-            h: (w * this.image.naturalWidth) / this.image.naturalHeight,
-            rot: 0,
-          });
-        } else {
-          this.store.add({ kind: tool, cx, cy, w: 0.28, h: 0.28, rot: 0 });
-        }
-        this.store.select(this.store.state.selection);
-        return;
-      }
-      this.store.select(null);
+      // Empty space: tap-to-place is DEFERRED to pointerup (gated by
+      // distance/time/not-cancelled). Selection clear is also deferred so
+      // desktop click behaviour stays: the desktop probe dispatches
+      // pointerdown+pointerup at once — both must still land a sticker.
     });
 
     canvas.addEventListener('pointermove', (e) => {
+      if (!this._pointers.has(e.pointerId)) {
+        // A capture-steering artifact: this pointer was never down on the
+        // canvas (e.g. a handle captured it). It must not drive the sticker.
+        return;
+      }
+      this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this._pointers.size >= 2) {
+        this._applyPanMove();
+        return;
+      }
+      if (this._pan) return; // was a pan; remaining finger must not drive a sticker
       if (!this.drag || !this.image) return;
       const pt = this._canvasPoint(e);
       const st = this.store.state.stickers.find((s) => s.id === this.drag.id);
@@ -572,25 +742,33 @@ export class CanvasApp {
       this._draw();
     });
 
-    const endPointer = () => {
-      if (!this.drag) return;
-      this.drag = null;
-      delete canvas.dataset.dragging;
-      // Drag coalescing: one undo entry for the whole gesture (commit on release).
-      this.store.commitDrag();
-    };
-    canvas.addEventListener('pointerup', endPointer);
-    canvas.addEventListener('pointercancel', endPointer);
+    canvas.addEventListener('pointerup', (e) => this._endStickerGate(e));
+    canvas.addEventListener('pointercancel', (e) => this._endStickerGate(e));
 
     // Handle buttons (DOM chrome) get their own pointer handlers so they can
-    // start resize/rotate without the canvas eating the event.
+    // start resize/rotate without the canvas eating the event. They are
+    // touch targets: the gesture must not throw when driven by a real touch
+    // (pointer capture on the handle element + the pointerId from the event).
+    // Handle pointer participation in _pointers matters for M6 later (a second
+    // finger landing on a handle currently enters pan mode); for M5 the canvas
+    // and handle edges both enter the same arbitration but pan proceeds on
+    // canvas moves only — a second finger's handle move is ignored by the
+    // move-guard below.
     for (const el of this.els.selectBox.querySelectorAll('.handle')) {
       el.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
         const st = this._selectedSticker();
         if (!st || !this.image) return;
-        el.setPointerCapture(e.pointerId);
+        this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (this._pointers.size >= 2) {
+          this._enterPanMode();
+          return;
+        }
+        if (e.pointerType !== 'touch') {
+          try { el.setPointerCapture(e.pointerId); } catch { /* synthetic events have no active pointer */ }
+        }
         const handle = el.dataset.handle;
+        if (!handle) return;
         if (handle === 'rotate') {
           this.drag = { mode: 'rotate', id: st.id, startRot: st.rot ?? 0 };
         } else {
@@ -599,6 +777,12 @@ export class CanvasApp {
         this.store.beginDrag(st.id);
         const move = (ev) => {
           if (!this.drag) return;
+          if (this._pointers.size >= 2) return;
+          // The handle captured this pointer: key the stored handle off the
+          // drag's own handle (this.drag.handle), NOT ev.target. Under touch,
+          // ev.target can be an inner element or the canvas when capture
+          // re-targets, which made el.dataset.handle read undefined and threw
+          // resizeRect: unknown handle "undefined".
           const pt = this._canvasPoint(ev);
           if (this.drag.mode === 'rotate') {
             const cxp = px(st.cx, this.image.naturalWidth);
@@ -616,8 +800,8 @@ export class CanvasApp {
           el.removeEventListener('pointermove', move);
           el.removeEventListener('pointerup', up);
           el.removeEventListener('pointercancel', up);
-    this.drag = null;
-    this._resizeObserver = null;
+          this._pointers.delete(e.pointerId);
+          this.drag = null;
           this.store.commitDrag();
         };
         el.addEventListener('pointermove', move);
