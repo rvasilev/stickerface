@@ -157,6 +157,32 @@ SELECTED sticker's emoji over it, so the highlight points at what an edit would
 change rather than at an unrelated emoji. A refused swap — a blur selected, or the
 same emoji — still updates `lastPickedSrc`.
 
+## View state: three input adapters, one function
+
+`this.view` (`{dx, dy, scale}`, CSS px, per-photo, reset by `fitCanvas()`) is the
+only zoom/pan state, and it is deliberately NOT in the store — the store is the
+document, the view is how you are looking at it.
+
+All three inputs go through `focalZoomView`, whose contract says *"distances
+unchanged reduces to a plain pan"*:
+
+- **Two-finger pinch/pan** — the original caller, anchors on the gesture centroid.
+- **Mouse wheel** — `focalZoomView(view, cursor, cursor, 1, k, w, h)`: anchor and
+  cursor are the same point, so it is a pure focal zoom. Ctrl/Cmd needs no branch —
+  a trackpad pinch arrives as ctrl+wheel, so that case is free.
+- **Middle-button drag** — the same `_applyPanMove` the touch gesture uses, with one
+  pointer so the focal distance never changes; the result is a translation through
+  the same clamp.
+
+Writing separate mouse maths is how the mouse view would silently disagree with the
+touch one, and the frame projection reads the same `view`, so the frame would be the
+first visible casualty. `wheelZoomFactor(deltaY, deltaMode)` lives in `geometry.js`
+because every projection does (node can unit-test it) and because CDP cannot carry a
+`deltaMode` — the line/page normalisation is only coverable in vitest.
+
+Two deliberate gaps, recorded in `docs/VERIFICATION.md`: no keyboard zoom (Ctrl +/-
+belongs to the browser) and no pan affordance on a middle-button-less trackpad.
+
 ## Why this shape
 
 - **No bundler:** the app is ~1 500 lines; GitHub Pages serves the source directly.

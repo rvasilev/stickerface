@@ -147,8 +147,19 @@
 
     if (!m0.redCentre) throw new Error('the fixture has no red block to anchor the wheel on');
     const RED = m0.redCentre;
-    const rect = canvas.getBoundingClientRect();
-    const C = [rect.left + rect.width / 2, rect.top + rect.height / 2];
+
+    // Whether the app suppressed the wheel's default. `scrollY` alone is a weak
+    // witness — at this viewport the page may have nothing to scroll, so the
+    // assertion would hold even with no preventDefault at all (measured: it did).
+    // A listener registered AFTER the app's sees `defaultPrevented` set by the
+    // app's own handler, which is the mechanism that actually protects the page
+    // wherever there IS a scroll to steal.
+    let wheelSeen = 0, wheelPrevented = 0;
+    canvas.addEventListener('wheel', (ev) => {
+      wheelSeen++;
+      if (ev.defaultPrevented) wheelPrevented++;
+    }, { passive: true });
+    const scrollable = document.documentElement.scrollHeight > window.innerHeight;
 
     // Live points for the middle drags, so the drag starts on the canvas whatever
     // the scroll position is by then.
@@ -174,10 +185,15 @@
       { t: 'wheel', pts: [[RED[0], RED[1]]], deltaY: -120, ms: 250 },
       { t: 'read', name: 'afterWheel' },
       // 2) ctrl+wheel = the trackpad-pinch path. Zooms the canvas, NOT the page.
-      { t: 'wheel', pts: [[C[0], C[1]]], deltaY: -120, modifiers: 2, ms: 250 },
+      //    Anchored on the same feature as (1) so the block stays in view for the
+      //    pan measurements — the cursor's position is irrelevant to what this
+      //    step asserts.
+      { t: 'wheel', pts: [[RED[0], RED[1]]], deltaY: -120, modifiers: 2, ms: 250 },
       { t: 'read', name: 'afterCtrlWheel' },
-      // 3) middle-drag pan
-      { t: 'drag', fns: ['window.__sfPanFrom()', 'window.__sfPanTo(170, 120)'], steps: 8, button: 'middle', ms: 400 },
+      // 3) middle-drag pan. SMALL on purpose: the claim being tested is the
+      //    "distances unchanged reduces to a plain pan" identity, which only holds
+      //    1:1 while the clamp is not biting. The huge drag below tests the clamp.
+      { t: 'drag', fns: ['window.__sfPanFrom()', 'window.__sfPanTo(60, 40)'], steps: 8, button: 'middle', ms: 400 },
       { t: 'read', name: 'afterPan' },
       // 4) a drag far past the clamp must stop at the clamp, not run away
       { t: 'drag', fns: ['window.__sfPanFrom()', 'window.__sfPanTo(-900, -700)'], steps: 6, button: 'middle', ms: 400 },
@@ -202,18 +218,34 @@
         visualScale: [t0 && t0.visualScale, c && c.visualScale],
       }]);
 
-      // Exact focal invariance: a point under the cursor does not move. Guarded on
-      // the zoom actually happening, or "nothing moved" would pass.
+      // Exact focal invariance: a point under the cursor does not move. The
+      // tolerance is the MEASUREMENT's, not the maths': the anchor is the red
+      // block's bounding-box centre read at canvas resolution, so its anti-aliased
+      // edges quantise to ~3 CSS px of drift (measured 3.2). A zoom that was not
+      // focal would move it by ~0.2 x its distance to the canvas centre — ~49px
+      // here — so 8px separates the two cleanly and is falsifiable either way.
       const d0 = dist(t0, RED), d1 = dist(w, RED);
       out.wheelZoomsAboutCursor = !!(d0 !== null && d1 !== null && scaleR > 1.05
-        && d0 >= 0 && d1 <= 3);
+        && d0 >= 0 && d1 <= 8);
       out.steps.push(['focal', { cursor: RED.map((v) => Math.round(v)), dBefore: d0, dAfter: d1 }]);
 
-      const mv = (pan && t0) ? [pan.redCentre[0] - t0.redCentre[0], pan.redCentre[1] - t0.redCentre[1]] : null;
-      out.middleDragPans = !!(mv && mv[0] > 60 && mv[1] > 30
-        && Math.abs((pan.viewDx - t0.viewDx) - mv[0]) < 6
-        && Math.abs((pan.viewDy - t0.viewDy) - mv[1]) < 6);
-      out.steps.push(['pan', { redMoved: mv, viewDelta: pan && t0 ? [pan.viewDx - t0.viewDx, pan.viewDy - t0.viewDy] : null }]);
+      // Both sides measured from the snapshot taken JUST BEFORE the drag
+      // (`afterCtrlWheel`): comparing against `t0` folds the two wheel zooms into
+      // the "pan" and the numbers stop meaning anything (measured: the view delta
+      // read -34 where the drag was +60).
+      // Null-safe: a wheel can carry the anchor feature off the canvas, and a
+      // reader that throws turns every criterion false instead of explaining which
+      // measurement was missing (it did exactly that once).
+      const rel = (a, b) => (a && b && a.redCentre && b.redCentre)
+        ? [a.redCentre[0] - b.redCentre[0], a.redCentre[1] - b.redCentre[1]] : null;
+      const mv = rel(pan, c);
+      out.middleDragPans = !!(mv && mv[0] > 40 && mv[1] > 25
+        && Math.abs((pan.viewDx - c.viewDx) - mv[0]) < 6
+        && Math.abs((pan.viewDy - c.viewDy) - mv[1]) < 6);
+      out.steps.push(['pan', {
+        redMoved: mv,
+        viewDelta: pan && c ? [pan.viewDx - c.viewDx, pan.viewDy - c.viewDy] : null,
+      }]);
 
       // Negative criteria carry a POSITIVE precondition: with no drag to observe,
       // "it did not select" and "it cleaned up" are vacuously true and prove
@@ -253,8 +285,12 @@
       // ...and the wheel must actually have zoomed, or "the page did not scroll"
       // passes for a listener that is simply absent.
       out.wheelDoesNotScrollPage = !!(t0 && w && c && scaleR > 1.05
-        && w.scrollY === t0.scrollY && c.scrollY === t0.scrollY);
-      out.steps.push(['pageScroll', { scrollY: [t0 && t0.scrollY, w && w.scrollY, c && c.scrollY] }]);
+        && w.scrollY === t0.scrollY && c.scrollY === t0.scrollY
+        && wheelSeen >= 2 && wheelPrevented === wheelSeen);
+      out.steps.push(['pageScroll', {
+        scrollY: [t0 && t0.scrollY, w && w.scrollY, c && c.scrollY],
+        wheelSeen, wheelPrevented, pageScrollable: scrollable,
+      }]);
 
       const before = r.exportBefore, after = r.exportAfter;
       out.wheelZoomDoesNotHitExport = !!(before && after && scaleR > 1.05

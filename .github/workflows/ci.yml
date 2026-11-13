@@ -141,3 +141,8 @@ jobs:
         env:
           E2E_PROBE: tests/e2e/emoji-swap-probe.js
         run: bash scripts/e2e.sh
+
+      - name: Gate — desktop wheel-zoom at the cursor and middle-button pan
+        env:
+          E2E_PROBE: tests/e2e/desktop-zoom-probe.js
+        run: bash scripts/e2e.sh

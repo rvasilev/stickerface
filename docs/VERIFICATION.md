@@ -46,6 +46,7 @@ probe must never read as success).
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 | `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
 | `emoji-swap-probe.js` — the picker EDITS the selected sticker: the artwork and the painted pixel change in place, geometry and z do not, it is one undo step, the layer row's visible name follows, the highlight follows the selection, and with nothing selected the click only arms the drop | 7 | green (2026-11-14) |
+| `desktop-zoom-probe.js` — the mouse wheel zooms the photo about the cursor (plain and Ctrl/Cmd, with the BROWSER not zooming), the frame and the canvas both follow, the page does not scroll, export is untouched, and a middle-button drag pans 1:1 and clamps rather than running away | 10 | green (2026-11-14) |
 | `polish-probe.js` — the panel is not a wall: `hidden` actually hides, sections collapse by real click, the emoji grid is capped, every control is ≥32px, every control type has a `:focus-visible` rule, one heading treatment, one number format, the nudge cluster reads ← ↑ ↓ → | 9 desktop / 4 phone | green (2026-11-14) — the only probe with a **mode-aware criteria set**: a desktop claim like "the panel fits without scrolling" is simply false on a phone, where the panel is meant to scroll, so each run reports only what holds for its viewport (CI runs both) |
 
 `layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js`,
@@ -161,6 +162,25 @@ rather than letting "no change" read as success.
   weakening a gate; keep every guard and re-run it. (`diag-layers-paint-probe.js`
   is the isolation tool for this class: it calls `moveTo` with no gesture at all and
   reports whether the canvas pixel follows the array order.)
+- **A negative criterion needs a positive precondition, or it passes for an
+  unimplemented feature.** `middleDragDoesNotSelect`, `middleDragCleansUp` and
+  `wheelDoesNotScrollPage` all passed against a build with NO wheel listener and NO
+  middle-button handling: nothing happened, so "it did not select", "it cleaned up"
+  and "the page did not scroll" were all trivially true. Each now requires the
+  gesture to have actually happened.
+- **Assert the mechanism, not only its consequence, when the consequence depends on
+  the environment.** `wheelDoesNotScrollPage` could not be broken by deleting
+  `preventDefault()` — the page is scrollable, but a dispatched wheel over the
+  canvas did not move it here, so `scrollY` stayed 0 either way. The criterion now
+  also requires `defaultPrevented` on the events (observed by a listener registered
+  after the app's), and that IS falsifiable: deleting `preventDefault` turns exactly
+  that criterion red (9/10). `scrollY` remains the user-visible requirement.
+- **A gate's anchor feature can leave the canvas.** The wheel criteria anchor on the
+  fixture's red block. Zoom about the canvas centre instead of the cursor and the
+  block goes off-screen, the anchor reads `null`, and the reader throws — which the
+  harness reports as every criterion failing, a much louder signal than the one
+  thing that broke. The deltas are computed null-safely now, so a lost anchor fails
+  only the criteria that needed it.
 - **An unrelated event in the same handler can mask the one you are testing.**
   `layerRowLabelFollowsSwap` passed with the store's `swap` event mutated to
   `change` — the exact trap it exists to catch. Cause: the picker's click handler
@@ -255,6 +275,18 @@ rather than letting "no change" read as success.
   That is how a change gets attributed to the right side of the blame.
 
 ## Manual checklist (things the probes cannot see)
+
+- **No keyboard zoom.** Ctrl/Cmd `+` / `-` is the browser's own page zoom, which is
+  an accessibility feature — stealing it would be a worse bug than having no
+  keyboard zoom. Recorded as a gap, not an oversight.
+- **No pan affordance without a middle button.** A trackpad has none. Space-drag (the
+  Figma convention) is the right follow-up; it needs a key-state machine and
+  `preventDefault` on space, so it is deliberately out of scope. Mouse-wheel zoom and
+  ctrl+wheel (trackpad pinch) do work on a trackpad.
+- **`deltaMode` on Firefox is unit-tested only.** CDP's `mouseWheel` cannot carry a
+  `deltaMode`, so the line/page normalisation is covered by `tests/geometry.test.js`
+  and never in the browser. If that test is removed, the feature ships visibly
+  broken on one engine with no gate catching it.
 
 - **Handle drags that leave the handle.** No gate drags a handle far enough off the
   handle to re-target `pointermove`, so both hazards documented in `_startHandleDrag` are

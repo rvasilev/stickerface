@@ -22,6 +22,7 @@ import {
   nudge,
   clampViewScale,
   focalZoomView,
+  wheelZoomFactor,
   isDoubleTap,
 } from './geometry.js';
 import { PointerTracker } from './pointer-tracker.js';
@@ -83,6 +84,7 @@ export class CanvasApp {
     this._bindEls();
     this._buildPicker();
     this._bindPointer();
+    this._bindWheel();
     this._bindKeys();
     this._bindToolbar();
     this._bindPad();
@@ -815,8 +817,7 @@ export class CanvasApp {
     // frame from these start values, so accumulating per-event drift is
     // impossible by construction.
     const start = this._centroid();
-    const rect = this.els.canvas.getBoundingClientRect();
-    const focalStart = { x: start.x - rect.left, y: start.y - rect.top };
+    const focalStart = this._canvasCssPoint(start);
     const pts = this._pointers.values();
     const startDist = pts.length >= 2
       ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
@@ -827,9 +828,8 @@ export class CanvasApp {
 
   _applyPanMove() {
     if (!this._pan) return;
-    const c = this._centroid();
     const rect = this.els.canvas.getBoundingClientRect();
-    const focalNow = { x: c.x - rect.left, y: c.y - rect.top };
+    const focalNow = this._canvasCssPoint(this._centroid());
     const pts = this._pointers.values();
     const currentDist = pts.length >= 2
       ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
@@ -969,6 +969,43 @@ export class CanvasApp {
     this._bindReleaseNet();
   }
 
+  /** Client-space point -> rect-relative CSS px: the space `focalZoomView` works
+   *  in and the space the pan anchors are stored in. One conversion, so the wheel
+   *  and the pan cannot disagree about the origin. */
+  _canvasCssPoint(p) {
+    const r = this.els.canvas.getBoundingClientRect();
+    return { x: p.x - r.left, y: p.y - r.top };
+  }
+
+  /** The mouse wheel zooms the photo about the cursor (plain, and with Ctrl/Cmd —
+   *  a trackpad pinch arrives as ctrl+wheel, so that branch comes free).
+   *
+   *  No separate zoom maths: focalStart === focalNow === the cursor reduces
+   *  `focalZoomView` to a pure focal zoom, and it is the same clamp and the same
+   *  edge cases as the pinch. Zoom is view state only — never sticker geometry,
+   *  which is what keeps export normalisation true. */
+  _bindWheel() {
+    // `passive: false` is required, not stylistic: a passive listener ignores
+    // preventDefault(), so the page would scroll AND the canvas would zoom.
+    this.els.canvas.addEventListener('wheel', (ev) => {
+      if (!this.image) return;
+      ev.preventDefault();
+      const pt = this._canvasCssPoint({ x: ev.clientX, y: ev.clientY });
+      const k = wheelZoomFactor(ev.deltaY, ev.deltaMode);
+      const rect = this.els.canvas.getBoundingClientRect();
+      this.view = focalZoomView(this.view, pt, pt, 1, k,
+        rect.width || this.canvasW, rect.height || this.canvasH);
+      this._draw();
+      this._positionSelectionBox();
+    }, { passive: false });
+
+    // A middle click also fires `auxclick`. Without this it autoscrolls on
+    // Windows and pastes the primary selection on X11.
+    this.els.canvas.addEventListener('auxclick', (ev) => {
+      if (ev.button === 1) ev.preventDefault();
+    });
+  }
+
   /** Desktop double-click removes the topmost sticker: the browser's own click
    *  sequence decides a mouse double-click. Touch has no dblclick — its
    *  double-tap is decided in _maybePlaceOnTap. */
@@ -991,6 +1028,23 @@ export class CanvasApp {
 
     canvas.addEventListener('pointerdown', (e) => {
       if (!this.image) return;
+
+      // Middle button pans the zoomed photo, and must NOT reach the sticker
+      // hit-test below: a middle press on a sticker is not a click on it. The drag
+      // then feeds the SAME `_applyPanMove` the two-finger gesture uses — with one
+      // pointer the focal distance never changes, so `focalZoomView` reduces to a
+      // pure translation through the same clamp, and there is no second pan/zoom
+      // implementation to drift from the touch one.
+      if (e.button === 1) {
+        e.preventDefault();         // Windows autoscroll / X11 selection paste
+        this._tap = null;           // releasing a pan must never place a sticker
+        this._registerPointer(e.pointerId, e.clientX, e.clientY);
+        try { canvas.setPointerCapture(e.pointerId); } catch { /* no active pointer */ }
+        this._enterPanMode();
+        return;
+      }
+      if (e.button !== 0) return;   // any other button is not an interaction
+
       this._registerPointer(e.pointerId, e.clientX, e.clientY);
       // IMPORTANT: do NOT call setPointerCapture for touch pointers. Capturing
       // pointer N on the canvas steers that pointer's moves to the canvas even

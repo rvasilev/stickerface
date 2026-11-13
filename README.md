@@ -51,6 +51,19 @@ v1 manual placement (images only — video is not supported):
   stay reachable without scrolling the panel
 - Controls are touch-sized (≥32 px), every control type has a visible
   `:focus-visible` ring, and numbers use one format throughout (`1 px`, `10 px`)
+- **Desktop wheel-zoom at the cursor, and middle-button pan.** The wheel zooms the
+  photo about the pointer (plain, and with Ctrl/Cmd — a trackpad pinch arrives as
+  ctrl+wheel, so that path is free); holding the middle button pans a zoomed photo.
+  Middle-click's default actions are suppressed (`pointerdown` and `auxclick`), so
+  it neither autoscrolls on Windows nor pastes the X11 selection.
+  Nothing new computes a view: all three inputs (pinch, wheel, middle drag) go
+  through `focalZoomView`, which is what keeps the mouse and touch views from
+  drifting apart. `wheelZoomFactor` normalises `deltaMode`, so Firefox's line-mode
+  wheel is not ~40× too strong. Zoom is view-only — sticker geometry and export are
+  untouched, and `desktop-zoom-probe.js` asserts the exported centre is unchanged.
+  **Two gaps, deliberate:** no keyboard zoom (Ctrl `+`/`-` is the browser's own page
+  zoom, an accessibility feature) and nothing for a middle-button-less trackpad
+  (space-drag is the right follow-up).
 - On a touch screen: **one finger** works the stickers (tap to place, drag to
   move, handles to resize/rotate), **two fingers** scroll the photo; a second
   finger cancels an in-flight sticker drag

@@ -15,6 +15,7 @@ import {
   clampViewPan,
   clampViewScale,
   focalZoomView,
+  wheelZoomFactor,
   VIEW_MIN_SCALE,
   VIEW_MAX_SCALE,
   isDoubleTap,
@@ -524,5 +525,51 @@ describe('focalZoomView (pure focal derivation)', () => {
   it('handles zero/degenerate distances without throwing', () => {
     expect(focalZoomView({ dx: 0, dy: 0, scale: 2 }, { x: 10, y: 10 }, { x: 20, y: 20 }, 0, 90, 390, 260).scale).toBe(2);
     expect(focalZoomView(undefined, { x: 0, y: 0 }, { x: 0, y: 0 }, 30, 90, 390, 260).scale).toBe(3);
+  });
+});
+
+// The wheel is the one input CDP cannot fully reproduce: `mouseWheel` carries no
+// `deltaMode`, so the line/page normalisation can only be covered here.
+describe('wheelZoomFactor', () => {
+  it('is exactly 1 when nothing scrolled', () => {
+    expect(wheelZoomFactor(0)).toBe(1);
+    expect(wheelZoomFactor(0, 1)).toBe(1);
+    expect(wheelZoomFactor(0, 2)).toBe(1);
+  });
+
+  it('zooms in when scrolling away (negative) and out when scrolling back', () => {
+    expect(wheelZoomFactor(-120)).toBeGreaterThan(1);
+    expect(wheelZoomFactor(120)).toBeLessThan(1);
+  });
+
+  it('normalises deltaMode, so a line-mode wheel is not ~40x too strong', () => {
+    // Realistic units: a Firefox notch is deltaMode 1 with deltaY ~= 3 LINES (48px),
+    // and a page-mode delta of 1 is 100px. Same pixel distance, same factor.
+    expect(wheelZoomFactor(-3, 1)).toBeCloseTo(wheelZoomFactor(-48, 0), 12);
+    expect(wheelZoomFactor(-1, 2)).toBeCloseTo(wheelZoomFactor(-100, 0), 12);
+    // Un-normalised, those same deltas would have been read as 3px and 1px — the
+    // branch is the difference between a wheel that works and one that barely moves.
+    expect(wheelZoomFactor(-3, 1)).toBeGreaterThan(wheelZoomFactor(-3, 0));
+  });
+
+  it('is exponential, so scrolling in and back out returns to the start', () => {
+    const round = wheelZoomFactor(-120) * wheelZoomFactor(120);
+    expect(Math.abs(round - 1)).toBeLessThan(1e-9);
+    // A linear factor drifts: three steps out is not one step of triple size.
+    expect(wheelZoomFactor(-60) * wheelZoomFactor(-60)).toBeCloseTo(wheelZoomFactor(-120), 12);
+  });
+
+  it('stays finite and positive for absurd or missing input', () => {
+    for (const v of [1e9, -1e9, NaN, Infinity, -Infinity, undefined, null, 'x']) {
+      const k = wheelZoomFactor(v);
+      expect(Number.isFinite(k)).toBe(true);
+      expect(k).toBeGreaterThan(0);
+    }
+    // A delta this large saturates to "no change" rather than to 0: exp(-1.5e6) is
+    // 0, and a 0 factor would freeze the view at an unclamped nothing. Big but
+    // sane deltas still shrink the factor.
+    expect(wheelZoomFactor(1e9)).toBe(1);
+    expect(wheelZoomFactor(10000)).toBeLessThan(1);
+    expect(wheelZoomFactor(10000)).toBeGreaterThan(0);
   });
 });

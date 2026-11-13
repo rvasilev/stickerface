@@ -387,6 +387,30 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — desktop wheel-zoom at the cursor and middle-button pan. Gate
+  first: `desktop-zoom-probe.js` RED 0/10 → green 10/10, unit 124 → 129. No new zoom
+  maths: all three inputs go through `focalZoomView` (the wheel passes the cursor as
+  both anchors → a pure focal zoom; the middle drag reuses `_applyPanMove`, one
+  pointer → a pure translation). `wheelZoomFactor` in `geometry.js` normalises
+  `deltaMode` (Firefox sends LINES: un-normalised, a notch is ~40× too strong) and
+  is unit-tested because CDP's `mouseWheel` cannot carry a `deltaMode` at all.
+  Harness: `click`/`hold`/`drag` take a `button` and there is a new `wheel` step —
+  the middle button was previously unreachable, and no probe may be edited to work
+  around a missing harness capability.
+  Three oracle faults found by measuring, all recorded in `docs/VERIFICATION.md`:
+  three negative criteria passed VACUOUSLY against a build with only three of ten
+  criteria implemented (nothing happened, so "did not select" was trivially true) —
+  each now requires the gesture to have occurred; `wheelDoesNotScrollPage` could not
+  be broken by deleting `preventDefault()` (the page is scrollable but a dispatched
+  wheel over the canvas does not move it here), so it now asserts `defaultPrevented`
+  on the events as well and THAT is falsifiable (9/10); and the pan oracle compared
+  the view delta from `t0`, folding two wheel zooms into the measurement.
+  Falsified: no `preventDefault` → exactly `wheelDoesNotScrollPage` red (9/10);
+  anchoring the zoom on the canvas centre → the focal criterion red plus a
+  null-anchor cascade, now null-safe.
+  Two gaps recorded, not fixed: no keyboard zoom (Ctrl +/- is the browser's own page
+  zoom) and no pan affordance without a middle button (space-drag is the follow-up).
+
 - **2026-11-14** — the picker now EDITS the selected sticker: clicking a different
   emoji replaces that sticker's artwork in place, same geometry and `z`, one undo
   step; with nothing selected it still only arms the next drop. Gate first:

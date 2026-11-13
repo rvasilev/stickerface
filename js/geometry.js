@@ -251,6 +251,29 @@ export function clampViewPan(view, cssW, cssH) {
   };
 }
 
+/** Wheel delta -> zoom multiplier, normalised across `deltaMode`.
+ *
+ *  deltaMode is 0 for pixels (Chrome), 1 for LINES (Firefox) and 2 for pages. An
+ *  un-normalised line-mode delta is ~40x too large, which reads as a broken zoom
+ *  rather than a fast one. Exponential, not linear: N steps in and N steps out
+ *  return to the same scale, so scrolling back the same distance lands on fit
+ *  again instead of drifting away from it.
+ *
+ *  This lives here, not in the UI, for the same reason as every other projection:
+ *  node can unit-test it, and CDP's `mouseWheel` cannot carry a `deltaMode` at
+ *  all, so this is the only place the line/page branches can be covered.
+ *
+ *  @param {number} deltaY wheel delta; negative (scroll up/away) zooms IN
+ *  @param {number} [deltaMode=0] 0 = pixels, 1 = lines, 2 = pages
+ *  @param {number} [step] zoom per normalised pixel
+ *  @returns {number} multiplier, always finite and > 0 */
+export function wheelZoomFactor(deltaY, deltaMode = 0, step = 0.0015) {
+  const unit = deltaMode === 1 ? 16 : deltaMode === 2 ? 100 : 1;
+  const px = finite(deltaY, 0) * unit;
+  const k = Math.exp(-px * step);
+  return Number.isFinite(k) && k > 0 ? k : 1;
+}
+
 /** Focal (pinch) zoom, derived ONLY from the gesture's start values so a pinch
  *  cannot drift: the image point under the start centroid stays under the
  *  current one. A moving centroid pans, a changing distance zooms.
