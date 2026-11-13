@@ -9,7 +9,7 @@ import {
   decodeCustomBitmap,
   paint,
 } from './render.js';
-import { exportImage, downloadBlob } from './export.js';
+import { exportImage, downloadBlob, cappedExportNote } from './export.js';
 import {
   px,
   norm,
@@ -1127,12 +1127,18 @@ export class CanvasApp {
     try {
       // A partial asset failure must never disable the app: export runs
       // whenever an image is loaded; undecodable stickers draw as a block.
-      const { blob, filename, degraded } = await exportImage(this.store.state, this.bitmaps, this.customBitmaps, mime, this.fallback);
+      const { blob, filename, degraded, compositeSize } = await exportImage(this.store.state, this.bitmaps, this.customBitmaps, mime, this.fallback);
       downloadBlob(blob, filename);
+      // Loud, never silent: when the photo exceeds the canvas cap the
+      // export is lower resolution than requested — say exactly what
+      // was exported and what was asked for, next to the saved line.
+      // (export.js keeps this text in one place: cappedExportNote().)
+      const capNote = cappedExportNote(compositeSize);
       this.setExportStatus(
-        degraded
+        (degraded
           ? `Saved ${filename} — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no decoded bitmap and were exported as a shaded block.`
-          : `Saved ${filename} — metadata (EXIF/GPS) removed.`,
+          : `Saved ${filename} — metadata (EXIF/GPS) removed.`)
+        + (capNote ? ` ${capNote}` : ''),
       );
     } catch (err) {
       this.setExportStatus(`Export failed: ${err.message}`);
