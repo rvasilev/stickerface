@@ -307,6 +307,7 @@ the pixel scale factor → `canvas.toBlob(mime, quality)` → download as
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z`, toolbar buttons |
 | Bring forward / back | `[` / `]` |
 | Nudge / size (selected) | the panel's **Selected sticker** pad — 4 arrows, a 1 px / 10 px step, size −/+ (inherits the nudge-granularity debt below) |
+| Restack (Layers) | drag a row by its `⠿` grip to move it up/down the stack; ⤴/⤵ and `[`/`]` move one step; the section collapses via `<details>` |
 
 Open interaction issues (spec debt, not yet fixed):
 
@@ -385,6 +386,34 @@ It is a real browser, a real file upload and real pixel assertions — see
 `docs/VERIFICATION.md`. Adding Playwright later is fine; do not delete the probe.
 
 ## Status log
+
+- **2026-11-14** — the Layers list became a real sticker selector. Rows now read
+  **topmost-first** (the store still keeps ascending-z array order; only
+  `_syncLayerList` walks it backwards, which is also what made the ⤴ glyph stop
+  contradicting its own motion), the section collapses via `<details>`/`<summary>`
+  (the platform's job, no JS, and rows are hidden rather than destroyed), and a
+  row's decorative `⠿` grip drags to restack with a single commit at drop —
+  `touch-action: none` is on the grip only, so the panel does not scroll during a
+  grip drag while a row tap still selects. Row buttons grew 24px → 32px (the
+  touch minimum; the row also gained the grip as a fourth control). One reorder
+  path now: `Store.moveTo(id, index)` (0 = bottom, z renumbered 1..n after the
+  splice, clamp at both ends, same-index and unknown-id are no-ops that push no
+  undo entry); `raise`/`lower`, the row buttons, `[`/`]` and the drag all ride
+  it. Two drag bugs were real and are gated: the slot count is edge-based, so a
+  drop exactly on a row's centre counts as having passed it (the midpoint-strict
+  version made a drag ending on the last row a silent no-op); and without
+  `touch-action: none` on the grip the browser cancelled the touch drag mid-way
+  and fired `pointercancel` instead of `pointerup`. `tests/e2e/layers-probe.js`
+  (8 criteria) is committed RED and left untouched: 6/8 green, with
+  `dragReordersPixels` and `dragWorksWithTouch` red on the probe's pixel
+  predicate — it classifies the centre as "black" only when every channel is
+  `< 60`, but Twemoji's black large square (2b1b) is `#31373D` = (49, 55, 61), so
+  the pixel reads `other(49,55,61)` after a correct restack; the row order
+  changed, the undo delta is 1, and the touch variant's rows changed too. The
+  fix is one threshold on the probe side. `probe.js`'s `reorderReachesLayerList`
+  is also red-consequence: it raises the second-to-bottom row expecting the last
+  two rows to swap, which is backwards against a topmost-first list — kept as
+  written, not weakened, and reported. Unit: 119/119 (was 114).
 
 - **2026-11-14** — the rotate handle snapped the sticker 90° counter-clockwise on
   the first move of a drag. The cause was structural, not a typo: the handle sits

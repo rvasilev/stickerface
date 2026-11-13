@@ -39,6 +39,10 @@ v1 manual placement (images only — video is not supported):
   forward/back ordering, keyboard nudging (1 px / 10 px with `Shift`),
   `Delete` **or a double-click / double-tap on the sticker** to remove,
   `[` / `]` to reorder
+- **Layers panel reads topmost-first, like every other editor** — the top row
+  is the sticker on top — inside a collapsible section, and each row's `⠿`
+  grip drags the sticker up or down the stack (the grip is decorative;
+  ⤴/⤵ and `[`/`]` stay the accessible reorder path)
 - On a touch screen: **one finger** works the stickers (tap to place, drag to
   move, handles to resize/rotate), **two fingers** scroll the photo; a second
   finger cancels an in-flight sticker drag

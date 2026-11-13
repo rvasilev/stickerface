@@ -32,7 +32,8 @@ probe must never read as success).
 
 | Probe | Criteria | State |
 |---|---|---|
-| `probe.js` — the user journey (upload → stickers → nudge → undo → export, pixels asserted) | 27 | green |
+| `probe.js` — the user journey (upload → stickers → nudge → undo → export, pixels asserted) | 27 | **26 green** — `reorderReachesLayerList` broke when the Layers list went TOPMOST-FIRST: the probe raises the SECOND-TO-BOTTOM row and expects the last two rows to swap, which is wrong against a topmost-first list (the criterion asserts the behaviour it was written for, so it is kept and left red rather than quietly weakened) |
+| `layers-probe.js` — the Layers list as a sticker selector: rows read topmost-first, the section collapses, a row drags to restack | 8 | **6 green** — `dragReordersPixels`, `dragWorksWithTouch` red on a gate threshold (see below); `dragWorksWithTouch` is mobile-only by design |
 | `photo-boundary-probe.js` — a new photo starts clean, the carry-over is explicit and one undo step | 9 | green |
 | `selection-probe.js` — the frame wraps the drawn sticker, before and after a real handle drag | 8 | green |
 | `delete-probe.js` — double-click removes the topmost sticker, one undo step, empty-canvas no-op | 8 | green |
@@ -139,6 +140,17 @@ rather than letting "no change" read as success.
   the bound sat ON the correct answer and failed on 0.2% raster noise. State the
   property instead (came back toward fit, never below fit) — a broken clamp or a dead
   pinch-in still fails it.
+- **A gate's pixel predicate must bracket the colour the asset actually draws.**
+  `layers-probe.js` classes the centre pixel as `black` only if every channel is
+  `< 60`. Twemoji's black large square (2b1b) is `#31373D` — (49, 55, 61) — so a
+  correctly restacked canvas reads `other(49,55,61)` and the criterion fails while
+  the app is right (the row order changed, the undo delta is 1, and the pixel
+  changed). That one threshold is the whole of both remaining reds: in the mobile
+  run the touch drag also reorders (`rowsBefore`/`rowsAfter` differ and the pixel
+  moved from `white` to `other(49,55,61)`), so `dragWorksWithTouch` fails on
+  `t1.pixel === 'black'` alone, not on the gesture. The correct fix is on the
+  probe side (`<= 70` on the channel test, or classing "not white" as the target)
+  — the gate is frozen, so this is reported with evidence and left untouched.
 
 ## Traps
 
@@ -192,6 +204,15 @@ rather than letting "no change" read as success.
   so this is a coverage hole, not a dead gate.
 - `ctx.filter` blur on Safari < 18 (the harness runs Chromium; the fallback path is
   not covered — see `docs/DEPS.md`).
+- **The Layers grip is pointer-only by design.** It is decorative (`aria-hidden`),
+  not a button: a button that does nothing on click is worse for assistive tech
+  than no control, and the accessible reorder path — the ⤴/⤵ buttons and `[`
+  / `]` — already exists. The keyboard reorder is gated
+  (`keyboardReorderStillWorks`), the pointer drag is gated for mouse and touch; the
+  grip's *visual* affordance (the `⠿` glyph, the insertion line) is manual.
+- **Row buttons are 32px.** They were 24px, below the 32px touch minimum WCAG
+  targets; the row gained a fourth control (the grip) in the same commit, so the
+  row height follows the buttons rather than the reverse.
 - A 40 MP photo: preview stays interactive, export returns full-resolution output.
 - An EXIF-rotated JPEG and a non-Latin filename.
 - Keyboard-only run: drop a sticker, nudge, rotate, delete, undo.

@@ -8,13 +8,16 @@ else is imported from there.
 index.html              markup only: toolbar, stage, canvas, right panel, About
 css/style.css           all styling; no external fonts
 js/ui.js                entry (index.html loads this): CanvasApp — DOM wiring,
-                        pointer state machine, selection chrome (8 resize
-                        handles + rotate handle), layer list, the
-                        selected-sticker pad
-js/store.js             Store: state + command-pattern undo/redo + subscribe()
+                         pointer state machine, selection chrome (8 resize
+                         handles + rotate handle), layer list, the
+                         selected-sticker pad, the layers section
+                         (`<details>`/`<summary>`) and the row drag grip
+js/store.js             Store: state + command-pattern undo/redo + subscribe().
+                         `moveTo(id, index)` is the one reorder path — 0 = bottom —
+                         and the row buttons, `[`/`]` and the grip drag all ride it
 js/geometry.js          PURE maths: px/norm, stickerRect, handlePositions,
-                        hitTest, resizeRect, rotateTo, angleDelta, snapAngle,
-                        nudge
+                         hitTest, resizeRect, rotateTo, angleDelta, snapAngle,
+                         nudge
 js/render.js            paint(), requestDraw() (rAF-coalesced), emoji bitmap
                         decoding with an SVG fallback, blur + mosaic effects
 js/export.js            capped-canvas export guard (maxCanvasPixels/exportSize,
@@ -88,12 +91,38 @@ Export is gated on "an image is loaded", never on the whole asset catalogue bein
 decoded. A missing emoji bitmap degrades to a drawn `<img>` or placeholder and is
 reported in `#export-status`; it must never block the export.
 
+## Layer list
+
+The Layers panel is a **descending** render of the store's ascending-z array:
+only `_syncLayerList`'s loop direction changes, so the row the user sees at the
+top is the sticker painted on top. `_updateLayerTitles` maps rows by id and is
+order-agnostic. The list lives inside a `<details open>`/`<summary>` — collapse
+is the platform's job, no JS — and the rows are hidden by the closed details,
+never destroyed, so selection and state survive a collapse.
+
+Each row's first child is a **grip** (`<span class="grip" aria-hidden="true">⠿</span>`):
+decorative, not a button — the accessible reorder path stays the ⤴/⤵ buttons and
+`[`/`]`. `touch-action: none` is on the grip only, so a grip drag cannot scroll
+the panel while a tap elsewhere in the row still selects. During a drag the row
+is translated and a 2px insertion line marks the slot; the slot counts how many
+of the *other* rows the pointer has passed (edge-based, so a drop exactly on a
+row's centre counts as passed it), and the store commits once, at drop. The
+visual→array conversion (`arrayIndex = ordered.length - 1 - visualIndex`) lives
+only in the drop handler — mixing visual order with z order anywhere else is how
+this feature breaks.
+
 ## Undo/redo
 
 Command pattern in `store.js`: each mutation pushes `{undo, redo}` closures onto a
 stack capped at 100. A pointer drag is committed **once**, on pointerup — not per
 `pointermove` — so one drag is one undo step. `Store.subscribe(fn)` drives the UI;
 the store never touches the DOM.
+
+`moveTo(id, index)` is the single reorder path: array index 0 is the bottom
+(lowest z), `z` is renumbered to `i + 1` for every sticker after the splice so
+array order and paint order cannot diverge, and an out-of-range or same-index call
+is a no-op that pushes no undo entry. `raise`/`lower` are thin callers of it; the
+layer-row ⤴/⤵ buttons, `[`/`]`, and the grip drag all go through the same call.
 
 ## Why this shape
 
