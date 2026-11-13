@@ -1,11 +1,8 @@
-// Pure geometry for StickerFace. No DOM, no canvas, no globals, no imports.
-// All sticker coordinates are NORMALIZED (0..1 relative to image width/height);
-// pixel math happens only at the render/export edge via px()/norm(). View pan
-// (clampViewPan) is in CSS px — the projection owner (ui.js) converts between
-// CSS px and canvas px; this module only clamps the offset values.
-//
-// Screen coordinates: canvas space, +x right, +y down. Rotation is radians,
-// clockwise-positive (matching ctx.rotate): a point rotated +90° points down.
+// Pure geometry: no DOM, no canvas, no globals, no imports. Sticker coordinates
+// are NORMALIZED (0..1 of the image); pixel maths happens only at the
+// render/export edge via px()/norm(). Canvas space: +x right, +y down, rotation
+// in radians, clockwise-positive (matching ctx.rotate). View pan/zoom is in CSS
+// px — ui.js owns that conversion, this module only clamps the values.
 
 /** @typedef {object} Sticker
  * @property {string} id
@@ -28,39 +25,25 @@ function finite(v, fallback = 0) {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
 
-/**
- * Convert a normalized value to pixels: px(v, span) = v * span.
- * @param {number} v normalized value (may lie outside 0..1; no clamping)
- * @param {number} span span in pixels (image width or height)
- * @returns {number} pixels
- */
+/** @param {number} v normalized, may lie outside 0..1 (not clamped)
+ *  @param {number} span px (image width or height) @returns {number} px */
 export function px(v, span) {
   const s = finite(span, 0);
   if (s <= 0) return 0;
   return finite(v, 0) * s;
 }
 
-/**
- * Convert pixels back to a normalized value: norm(v, span) = v / span.
- * Inverse of px(); round-trips within 1e-9 at any sane image size.
- * @param {number} v pixels
- * @param {number} span span in pixels
- * @returns {number} normalized value
- */
+/** Inverse of px(); round-trips within 1e-9. @param {number} v px
+ *  @param {number} span px @returns {number} normalized */
 export function norm(v, span) {
   const s = finite(span, 0);
   if (s <= 0) return 0;
   return finite(v, 0) / s;
 }
 
-/**
- * Axis-aligned, un-rotated rect of a sticker in pixels.
- * Centred on (cx*imgW, cy*imgH) with size (w*imgW, h*imgH).
- * @param {Sticker} sticker
- * @param {number} imgW natural image width px
- * @param {number} imgH natural image height px
- * @returns {{x:number, y:number, w:number, h:number}} top-left + size in px
- */
+/** Axis-aligned, un-rotated rect in px, centred on (cx, cy).
+ *  @param {Sticker} sticker @param {number} imgW @param {number} imgH
+ *  @returns {{x:number, y:number, w:number, h:number}} top-left + size */
 export function stickerRect(sticker, imgW, imgH) {
   const w = px(finite(sticker.w), imgW);
   const h = px(finite(sticker.h), imgH);
@@ -69,15 +52,11 @@ export function stickerRect(sticker, imgW, imgH) {
   return { x: cxp - w / 2, y: cyp - h / 2, w, h };
 }
 
-/**
- * The 8 resize-handle positions (px) for a rect, rotated about the sticker
- * centre by `rot`. Local offsets are the un-rotated corners/edges, rotated
- * with the canvas matrix (x' = dx*cos - dy*sin, y' = dx*sin + dy*cos) so the
- * handles line up exactly with a translate/rotate/drawImage paint.
- * @param {{x:number, y:number, w:number, h:number}} rect un-rotated rect (px)
- * @param {number} rot radians, clockwise
- * @returns {{nw:Pt, n:Pt, ne:Pt, e:Pt, se:Pt, s:Pt, sw:Pt, w:Pt}}
- */
+/** The 8 handle positions (px) for a rect, rotated about its centre by `rot`
+ *  with the canvas matrix, so they line up exactly with a translate/rotate paint.
+ *  @param {{x:number, y:number, w:number, h:number}} rect un-rotated, px
+ *  @param {number} rot radians, clockwise
+ *  @returns {{nw:Pt, n:Pt, ne:Pt, e:Pt, se:Pt, s:Pt, sw:Pt, w:Pt}} */
 export function handlePositions(rect, rot) {
   const cx = rect.x + rect.w / 2;
   const cy = rect.y + rect.h / 2;
@@ -99,18 +78,13 @@ export function handlePositions(rect, rot) {
   };
 }
 
-/**
- * Topmost sticker whose rotated rect contains `point` (px), else null.
- * Why the local frame: rotating the rect and doing a point-in-polygon test is
- * error-prone at the corners; instead counter-rotate the point by -rot into
- * the sticker's own axis-aligned frame and do an AABB test. Iterates z
- * descending so an overlap returns the sticker that would paint last.
- * @param {Pt} point px (image/natural space)
- * @param {Sticker[]} stickers
- * @param {number} imgW px
- * @param {number} imgH px
- * @returns {string|null} sticker id or null
- */
+/** Topmost sticker whose rotated rect contains `point` (px), else null.
+ *  Counter-rotates the point into the sticker's own axis-aligned frame rather
+ *  than testing a rotated polygon; iterates z descending, so the sticker that
+ *  would paint last wins an overlap.
+ *  @param {Pt} point px, image/natural space @param {Sticker[]} stickers
+ *  @param {number} imgW px @param {number} imgH px
+ *  @returns {string|null} sticker id */
 export function hitTest(point, stickers, imgW, imgH) {
   if (!Array.isArray(stickers) || stickers.length === 0) return null;
   if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
@@ -143,22 +117,15 @@ export function hitTest(point, stickers, imgW, imgH) {
   return null;
 }
 
-/**
- * Resize a sticker by dragging a handle to `pointerPx`.
- * The opposite edge/corner stays pinned (in the local frame). Returns a NEW
- * normalized {cx, cy, w, h}; the input sticker is not mutated.
- *
- * keepAspect preserves the current w/h PIXEL ratio: the dragged size is
- * re-derived from that ratio and re-anchored to the pinned edge, so both
- * axes stay proportional instead of one axis snapping.
- *
- * Minimum size is 2 px so a handle cannot collapse or invert a sticker.
- * @param {Sticker} sticker
- * @param {string} handle 'nw'|'n'|'ne'|'e'|'se'|'s'|'sw'|'w'
- * @param {Pt} pointerPx pointer position in image px
- * @param {{imgW:number, imgH:number, keepAspect?:boolean}} opts image size + keepAspect
- * @returns {{cx:number, cy:number, w:number, h:number}} normalized
- */
+/** Resize by dragging a handle to `pointerPx`: the opposite edge/corner stays
+ *  pinned in the local frame. keepAspect preserves the current w/h PIXEL ratio,
+ *  re-anchored to the pinned edge so neither axis snaps. Minimum 2 px, so a
+ *  handle cannot collapse or invert a sticker. Pure — the input is not mutated.
+ *  @param {Sticker} sticker
+ *  @param {string} handle 'nw'|'n'|'ne'|'e'|'se'|'s'|'sw'|'w'
+ *  @param {Pt} pointerPx pointer position in image px
+ *  @param {{imgW:number, imgH:number, keepAspect?:boolean}} opts
+ *  @returns {{cx:number, cy:number, w:number, h:number}} normalized */
 export function resizeRect(sticker, handle, pointerPx, opts) {
   const W = opts?.imgW;
   const H = opts?.imgH;
@@ -258,81 +225,49 @@ export const VIEW_MIN_SCALE = 1;
 /** Maximum pinch-zoom of the photo (view only; sticker geometry is unaffected). */
 export const VIEW_MAX_SCALE = 8;
 
-/**
- * Clamp a view scale to the pinch-zoom range 1…8. Non-finite / non-positive
- * values fall back to 1 (fit), never to 0 — a 0 scale would invert the
- * projection and make the image vanish from the canvas.
- * @param {number} scale
- * @returns {number} clamped scale
- */
+/** Clamp to 1…8. Non-finite or non-positive falls back to 1, never 0 — a 0 scale
+ *  would invert the projection and make the image vanish from the canvas.
+ *  @param {number} scale @returns {number} clamped */
 export function clampViewScale(scale) {
   return Math.min(VIEW_MAX_SCALE, Math.max(VIEW_MIN_SCALE, finite(scale, VIEW_MIN_SCALE)));
 }
 
-/**
- * Clamp a pan offset so the image can never be pushed entirely out of view.
- * Keeps at least 25% of the (zoomed) image visible in each axis: the offset
- * (CSS px, the view's dx/dy) is limited to 75% of the SCALED image's CSS
- * size. At scale 1 this is exactly the old pan clamp (75% of the CSS box),
- * so panning at fit behaves as before; at scale > 1 the allowance grows
- * with the scaled image, which is what focal zoom needs — an edge clamp of
- * [cssW - scaledW, 0] at scale >= 1 would forbid panning at 1x entirely
- * and would snap the focal point for a pinch that starts from a pan.
- * `scale` is clamped to 1…8 (see clampViewScale) and carried through.
- * @param {{dx:number, dy:number, scale?:number}} view pan offset in CSS px
- * @param {number} cssW image CSS width px (at scale 1)
- * @param {number} cssH image CSS height px (at scale 1)
- * @returns {{dx:number, dy:number, scale:number}} clamped view
- */
+/** Clamp a pan offset so at least 25% of the SCALED image stays visible on each
+ *  axis. At scale 1 that is 75% of the CSS box (panning at fit); above 1 the
+ *  allowance grows with the zoom, which is what focal pinch-zoom needs.
+ *  @param {{dx:number, dy:number, scale?:number}} view pan offset in CSS px
+ *  @param {number} cssW @param {number} cssH image CSS size at scale 1
+ *  @returns {{dx:number, dy:number, scale:number}} clamped view */
 export function clampViewPan(view, cssW, cssH) {
-  const dx = finite(view?.dx);
-  const dy = finite(view?.dy);
   const scale = clampViewScale(view?.scale);
   const w = finite(cssW);
   const h = finite(cssH);
   const maxX = w > 0 ? (w * scale) * 0.75 : 0;
   const maxY = h > 0 ? (h * scale) * 0.75 : 0;
-  const rawDx = finite(view?.dx);
-  const rawDy = finite(view?.dy);
-  // Genuine pan offset: move toward zero when it is beyond the scaled
-  // allowance; a plain focal zoom stays inside, a zoom-out overshoots.
   return {
-    dx: Math.max(-maxX, Math.min(maxX, rawDx)),
-    dy: Math.max(-maxY, Math.min(maxY, rawDy)),
+    dx: Math.max(-maxX, Math.min(maxX, finite(view?.dx))),
+    dy: Math.max(-maxY, Math.min(maxY, finite(view?.dy))),
     scale,
   };
 }
 
-/**
- * Focal (pinch) zoom: the view for the current gesture state, derived ONLY
- * from the gesture's start values — never accumulated per event, so a pinch
- * cannot drift. The image point that was under the focal (centroid) point at
- * gesture start stays under the focal point now, which is also what makes a
- * moving centroid pan the image at the same time as it zooms.
- *
- * Moving centroid pans; a changing distance zooms. One limit worth knowing:
- * clampViewPan truncates an offset that exceeds the scaled allowance, so a
- * focal point near the canvas edge at high zoom can slip by the excess — the
- * image stays inside the clamp. Paint, the selection frame and hit-testing all
- * read the same `view`, so they stay consistent with each other regardless.
- *
- * With focal points in canvas-CSS coordinates (relative to the canvas rect
- * origin), the image point under the focal at start is
- * `(focalStart - startDx) / startScale` (in backing*preview units), and the
- * new offset follows from demanding that same point sit under `focalNow`:
- *   scale = clamp(startScale * currentDist / startDist, 1, 8)
- *   dx    = focalNow.x - (focalStart.x - startDx) * (scale / startScale)
- * (same for dy). When the distance is unchanged this reduces to a plain pan:
- * dx = startDx + (focalNow.x - focalStart.x).
- * @param {{dx:number, dy:number, scale?:number}} startView view at gesture start
- * @param {Pt} focalStart gesture centroid at start, canvas-CSS px (relative origin)
- * @param {Pt} focalNow gesture centroid now, canvas-CSS px (relative origin)
- * @param {number} startDist two-finger distance at start (CSS px)
- * @param {number} currentDist two-finger distance now (CSS px)
- * @param {number} cssW image CSS width px (at scale 1)
- * @param {number} cssH image CSS height px (at scale 1)
- * @returns {{dx:number, dy:number, scale:number}} clamped view
- */
+/** Focal (pinch) zoom, derived ONLY from the gesture's start values so a pinch
+ *  cannot drift: the image point under the start centroid stays under the
+ *  current one. A moving centroid pans, a changing distance zooms.
+ *    scale = clamp(startScale * currentDist / startDist, 1, 8)
+ *    dx    = focalNow.x - (focalStart.x - startDx) * (scale / startScale)
+ *  (same for dy). Distances unchanged reduces to a plain pan. clampViewPan can
+ *  truncate an offset past the scaled allowance, so a focal point near the edge
+ *  at high zoom slips by the excess — paint, the selection frame and hit-testing
+ *  all read the same `view`, so they agree regardless.
+ *  @param {{dx:number, dy:number, scale?:number}} startView view at gesture start
+ *  @param {Pt} focalStart centroid at start, canvas-CSS px (relative origin)
+ *  @param {Pt} focalNow centroid now, canvas-CSS px (relative origin)
+ *  @param {number} startDist two-finger distance at start (CSS px)
+ *  @param {number} currentDist two-finger distance now (CSS px)
+ *  @param {number} cssW image CSS width px (at scale 1)
+ *  @param {number} cssH image CSS height px (at scale 1)
+ *  @returns {{dx:number, dy:number, scale:number}} clamped view */
 export function focalZoomView(startView, focalStart, focalNow, startDist, currentDist, cssW, cssH) {
   const startScale = clampViewScale(startView?.scale);
   const sd = finite(startDist);
@@ -352,14 +287,9 @@ export function focalZoomView(startView, focalStart, focalNow, startDist, curren
   );
 }
 
-/**
- * Angle (radians, clockwise-positive) from centre to pointer.
- * When `snap` is true, snaps to the nearest 15° (Math.PI/12).
- * @param {Pt} centrePx
- * @param {Pt} pointerPx
- * @param {boolean} [snap]
- * @returns {number} radians in (-PI, PI]
- */
+/** Angle (radians, clockwise-positive) from centre to pointer; `snap` rounds it
+ *  to the nearest 15°. @param {Pt} centrePx @param {Pt} pointerPx
+ *  @param {boolean} [snap] @returns {number} radians in (-PI, PI] */
 export function rotateTo(centrePx, pointerPx, snap = false) {
   const dx = finite(pointerPx?.x) - finite(centrePx?.x);
   const dy = finite(pointerPx?.y) - finite(centrePx?.y);
@@ -374,16 +304,9 @@ export function rotateTo(centrePx, pointerPx, snap = false) {
   return angle;
 }
 
-/**
- * Nudge a sticker by pixel deltas, returning a NEW normalized sticker
- * (all other fields copied). Pure: the input sticker is not mutated.
- * @param {Sticker} sticker
- * @param {number} dxPx horizontal delta in image px
- * @param {number} dyPx vertical delta in image px
- * @param {number} imgW px
- * @param {number} imgH px
- * @returns {Sticker} new sticker
- */
+/** Offset a copy of the sticker by pixel deltas. Pure.
+ *  @param {Sticker} sticker @param {number} dxPx @param {number} dyPx
+ *  @param {number} imgW px @param {number} imgH px @returns {Sticker} */
 export function nudge(sticker, dxPx, dyPx, imgW, imgH) {
   const cxp = px(finite(sticker.cx), imgW) + finite(dxPx);
   const cyp = px(finite(sticker.cy), imgH) + finite(dyPx);
@@ -394,16 +317,13 @@ export function nudge(sticker, dxPx, dyPx, imgW, imgH) {
   };
 }
 
-/**
- * Pure double-tap windowing: decide whether a second tap completes a
- * double-tap with a previous tap. Desktop uses the browser dblclick instead;
- * touch must be decided by the gesture router with an explicit window so it
- * cannot race the one-finger/two-finger arbitration.
- * @param {{x:number,y:number,t:number}|null} prev previous tap (CSS px + ms clock)
- * @param {{x:number,y:number,t:number}|null} cur current tap
- * @param {{maxMs?:number, maxDistCssPx?:number}} [opts]
- * @returns {boolean} true iff both taps are inside the window
- */
+/** Whether `cur` completes a double-tap with `prev`. Desktop uses the browser
+ *  dblclick; touch needs an explicit window so it cannot race the
+ *  one-finger/two-finger arbitration.
+ *  @param {{x:number,y:number,t:number}|null} prev previous tap (CSS px + ms)
+ *  @param {{x:number,y:number,t:number}|null} cur current tap
+ *  @param {{maxMs?:number, maxDistCssPx?:number}} [opts]
+ *  @returns {boolean} true iff both taps are inside the window */
 export function isDoubleTap(prev, cur, opts) {
   if (!prev || !cur) return false;
   const maxMs = Number.isFinite(opts?.maxMs) ? opts.maxMs : 350;

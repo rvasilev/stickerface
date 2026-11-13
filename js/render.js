@@ -204,8 +204,6 @@ export function partitionStickers(stickers, bitmaps, fallback, customBitmaps) {
   return { withBitmap, withFallback, withPlaceholder };
 }
 
-
-
 /** Rounded-rect path helper. radiusPx is already in canvas px, clamped here. */
 function roundedRectPath(ctx, x, y, w, h, radiusPx) {
   const rr = Math.max(0, Math.min(radiusPx ?? 0, w / 2, h / 2));
@@ -334,14 +332,6 @@ function drawMosaic(ctx, sticker, baseCanvas, imgW, imgH, scale, scratchCanvas, 
   const sh = Math.min(baseCanvas.height - sy, Math.ceil(rect.h * scale));
   if (sw <= 0 || sh <= 0) return;
   const block = Math.max(2, Math.round((sticker.strength ?? 16) * scale));
-  if (sw < block || sh < block) {
-    // Degenerate: fall back to a flat patch of the region's average colour.
-    try {
-      const data = scratchCtx.getImageData(0, 0, 1, 1);
-    } catch {
-      /* ignore */
-    }
-  }
 
   let src;
   try {

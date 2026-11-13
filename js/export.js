@@ -23,9 +23,6 @@ export const SAFARI_LEGACY_MAX_CANVAS_PIXELS = 16777216;
 /** Safari / iOS 18+: 8192x8192 (WebKit bug 271002). */
 export const SAFARI_MODERN_MAX_CANVAS_PIXELS = 67108864;
 
-/** Same area limits in square pixels (the argument area tests pass as `cap`). */
-export const MAX_CANVAS_PIXELS = DEFAULT_MAX_CANVAS_PIXELS;
-
 /** True when a UA string identifies Safari on iOS or macOS. @param {string} ua */
 function isSafariUA(ua) {
   return typeof ua === 'string' && ua.includes('Safari') && !ua.includes('Chrome') && !ua.includes('Chromium');
@@ -100,17 +97,16 @@ function currentMaxCanvasPixels() {
  * @param {Map<string, ImageBitmap>} bitmaps
  * @param {Map<string, ImageBitmap>} [customBitmaps]
  * @param {Map<string, HTMLImageElement>} [fallback] img fallbacks by src
- * @param {object} [opts] {cap} — override the canvas-area cap (tests / odd engines)
  * @returns {{canvas: HTMLCanvasElement, compositeSize: object}} paint store, never blank
  */
-function compositeCanvas(state, bitmaps, customBitmaps, fallback, opts) {
+function compositeCanvas(state, bitmaps, customBitmaps, fallback) {
   const image = state.image;
   if (!image) throw new Error('No image loaded');
   const W = image.naturalWidth;
   const H = image.naturalHeight;
   if (!W || !H) throw new Error('Image has no natural size');
 
-  const size = exportSize(W, H, opts?.cap ?? currentMaxCanvasPixels());
+  const size = exportSize(W, H, currentMaxCanvasPixels());
   const canvas = document.createElement('canvas');
   canvas.width = size.w;
   canvas.height = size.h;
@@ -124,7 +120,7 @@ function compositeCanvas(state, bitmaps, customBitmaps, fallback, opts) {
     requestedH: H,
     capped: size.capped,
     scale: size.scale,
-    maxPixels: opts?.cap ?? currentMaxCanvasPixels(),
+    maxPixels: currentMaxCanvasPixels(),
   };
   paint(ctx, {
     image,
@@ -174,24 +170,13 @@ export function degradedStickerCount(state, bitmaps, customBitmaps, fallback) {
  * @param {Map<string, ImageBitmap>} [customBitmaps]
  * @param {string} [mime] 'image/png' (default) or 'image/jpeg'
  * @param {Map<string, HTMLImageElement>} [fallback] img fallbacks by src
- * @param {number|object} [quality] JPEG quality (default 0.92) or {quality, cap}
+ * @param {number} [quality] JPEG quality (default 0.92)
  * @returns {Promise<{blob: Blob, filename: string, degraded: number, compositeSize: object}>}
  */
 export async function exportImage(state, bitmaps, customBitmaps = new Map(), mime = 'image/png', fallback, quality = 0.92) {
-  // Back-compat: the old signature was (state, bitmaps, custom, mime, quality);
-  // tolerate a numeric 5th argument so older callers still work.
-  if (typeof fallback === 'number') {
-    quality = fallback;
-    fallback = undefined;
-  }
-  let cap;
-  if (quality != null && typeof quality === 'object') {
-    cap = quality.cap;
-    quality = quality.quality;
-  }
   const image = state.image;
   if (!image) throw new Error('No image loaded');
-  const { canvas, compositeSize } = compositeCanvas(state, bitmaps, customBitmaps, fallback, cap != null ? { cap } : undefined);
+  const { canvas, compositeSize } = compositeCanvas(state, bitmaps, customBitmaps, fallback);
   const degraded = degradedStickerCount(state, bitmaps, customBitmaps, fallback);
   const ext = mime === 'image/jpeg' ? 'jpg' : 'png';
   const base = (image.name ?? 'photo')

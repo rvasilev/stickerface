@@ -5,7 +5,6 @@ import {
   maxCanvasPixels,
   exportSize,
   degradedStickerCount,
-  MAX_CANVAS_PIXELS,
   DEFAULT_MAX_CANVAS_PIXELS,
   SAFARI_LEGACY_MAX_CANVAS_PIXELS,
   SAFARI_MODERN_MAX_CANVAS_PIXELS,
@@ -34,7 +33,6 @@ describe('maxCanvasPixels', () => {
 
   it('gives everything else the default 268M cap', () => {
     expect(DEFAULT_MAX_CANVAS_PIXELS).toBe(268435456);
-    expect(MAX_CANVAS_PIXELS).toBe(268435456);
     expect(maxCanvasPixels(CHROME)).toBe(268435456);
     expect(maxCanvasPixels(FIREFOX)).toBe(268435456);
     expect(maxCanvasPixels(undefined)).toBe(268435456);

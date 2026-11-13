@@ -1,13 +1,6 @@
-// Pure pointer bookkeeping for StickerFace. No DOM, no canvas, no globals, no
-// imports — the live count is exposed to the page by the caller
-// (canvas.dataset.pointers) so a leak is measurable from the gate, but this
-// module never touches the DOM.
-//
-// Why a separate module: the gesture router must know the exact live contact
-// count to arbitrate one-finger (sticker) vs two-finger (pan). A stale entry
-// makes the next one-finger tap look like the second finger of a pan, which
-// silently kills tap-to-place. Isolating the count lets it be unit-tested in
-// node without a browser.
+// Pure pointer bookkeeping: the live contact count that arbitrates one finger
+// (sticker) from two (pan). No DOM, no canvas, no imports — isolating it keeps
+// the count unit-testable without a browser.
 
 export class PointerTracker {
   constructor() {
@@ -15,48 +8,40 @@ export class PointerTracker {
     this._map = new Map();
   }
 
-  /** Number of live contacts. */
+  /** Live contact count. */
   get size() {
     return this._map.size;
   }
 
-  /** True when this pointerId is currently tracked. */
+  /** @param {number} id pointerId @returns {boolean} tracked? */
   has(id) {
     return this._map.has(id);
   }
 
-  /**
-   * Add or update a contact. Updating an existing id does not grow the count.
-   * @param {number} id pointerId
-   * @param {number} x client (CSS) x
-   * @param {number} y client (CSS) y
-   * @returns {number} the new live count
-   */
+  /** Add or update a contact; updating an existing id does not grow the count.
+   *  @param {number} id pointerId @param {number} x client CSS px
+   *  @param {number} y client CSS px @returns {number} new live count */
   add(id, x, y) {
     this._map.set(id, { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 });
     return this._map.size;
   }
 
-  /**
-   * Remove a contact after it lifts or is cancelled.
-   * @param {number} id pointerId
-   * @returns {boolean} true iff the id was tracked
-   */
+  /** @param {number} id pointerId @returns {boolean} true iff the id was tracked */
   remove(id) {
     return this._map.delete(id);
   }
 
-  /** Forget all contacts (new photo loaded). */
+  /** Forget all contacts (a new photo was loaded). */
   clear() {
     this._map.clear();
   }
 
-  /** Snapshot of live points, for centroid/pan math. */
+  /** @returns {{x:number, y:number}[]} live points, for centroid/pan maths */
   values() {
     return [...this._map.values()];
   }
 
-  /** Centroid of the live contacts in client (CSS) px; {0,0} when empty. */
+  /** @returns {{x:number, y:number}} centroid in client CSS px; {0,0} when empty */
   centroid() {
     const pts = this.values();
     if (!pts.length) return { x: 0, y: 0 };

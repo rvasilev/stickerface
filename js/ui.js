@@ -18,7 +18,6 @@ import {
   resizeRect,
   rotateTo,
   nudge,
-  clampViewPan,
   clampViewScale,
   focalZoomView,
   isDoubleTap,
@@ -40,8 +39,6 @@ export class CanvasApp {
     this.fallback = new Map();
     this.customBitmaps = new Map();
     this.ready = false;
-    this.loadedCount = 0;
-    this.totalCount = EMOJI.length;
     this.image = null; // HTMLImageElement (+ .name)
     this._layerRows = []; // [{id, label}] — last built layer rows, for geometry-only title updates
     this._layerCount = 0; // stickers.length at the last full rebuild
@@ -51,18 +48,16 @@ export class CanvasApp {
     this.pendingLayout = null; // "apply layout to next photo"
     this.lastPickedSrc = EMOJI[0]?.path ?? '';
     this.drag = null;
-    // Pan is view state (CSS px). Kept OUT of the store on purpose: a pan
-    // must not touch sticker geometry, the selection, or the undo stack.
-    // `scale` is the pinch-zoom hook: M7 two-finger image zoom lives in the
-    // same object (focal zoom, clamped 1…8, still never touches the store).
+    // Pan and pinch-zoom are view state (CSS px). Kept OUT of the store on
+    // purpose: the view must never touch sticker geometry, the selection, or
+    // the undo stack.
     this.view = { dx: 0, dy: 0, scale: 1 };
-    // Active canvas pointers (client/CSS coords). Exactly one -> sticker
-    // mode; two or more -> view (pan) mode. Last-pointer-wins is what moved
-    // the sticker on the second finger, so the tracker IS the arbitration
-    // state. Kept in a pure module so the count is unit-testable; the live
-    // count is mirrored to canvas.dataset.pointers so the gate can measure a
-    // leak directly (a stale entry makes the next one-finger tap read as a
-    // second finger and silently kills tap-to-place).
+    // Active canvas pointers (client/CSS coords). One -> sticker mode; two or
+    // more -> view (pan) mode. The tracker IS the arbitration state: a stale
+    // entry makes the next one-finger tap read as a second finger and silently
+    // kills tap-to-place. The live count is mirrored to canvas.dataset.pointers
+    // — a deliberate measurement contract, kept in one place (see
+    // _registerPointer).
     this._pointers = new PointerTracker();
     // Tap-to-place tracking. Placement happens on pointerup only when the
     // gesture stayed within ~8 CSS px and under ~500 ms and was never
@@ -94,8 +89,6 @@ export class CanvasApp {
     this.bitmaps = bitmaps;
     this.fallback = fallback ?? new Map();
     this.ready = ready;
-    this.loadedCount = loaded;
-    this.totalCount = total;
     this.onStateChange();
     if (!ready) {
       this.setExportStatus(
@@ -260,7 +253,7 @@ export class CanvasApp {
     // a different image. The CSS box must have the same aspect as the backing
     // store: a box with different width/height ratios is how canvas's
     // `object-fit: fill` (the default) stretches the preview and breaks the
-    // normalized->screen mapping the probe clicks through.
+    // normalized->screen mapping every pointer event goes through.
     canvas.style.width = '';
     canvas.style.height = '';
     canvas.style.aspectRatio = `${W} / ${H}`;
@@ -283,10 +276,9 @@ export class CanvasApp {
     const W = this.canvasW;
     const H = this.canvasH;
     // Fit the box to the stage's available area. A stage height derived from
-    // `100vh` guarantees the preview never extends past the fold. Cap the
-    // box by the CSS `max-width/max-height` as well so the probe's
-    // `canvasFitsViewport` check (canvas, not stage) holds at every window
-    // size, including very short ones.
+    // `100vh` guarantees the preview never extends past the fold; the viewport
+    // caps it too, so the canvas fits inside the window at every size,
+    // including very short ones.
     let scale = Math.min(wAvail / W, hAvail / H);
     if (window.innerWidth && window.innerHeight) {
       scale = Math.min(
@@ -542,9 +534,8 @@ export class CanvasApp {
   _bindToolbar() {
     for (const [tool, btn] of Object.entries(this.toolbarTools)) {
       btn.addEventListener('click', () => {
-        // Hiding is not disabling: a hidden control still fires its handler if
-        // something clicks it programmatically (the probe does exactly that).
-        // A tool whose button is hidden must not become active.
+        // Hiding is not disabling: a hidden control still fires its handler
+        // when clicked programmatically, so the tool must refuse to activate.
         if (btn.hidden) return;
         this.store.setTool(tool);
         this._syncToolButtons();
@@ -633,12 +624,10 @@ export class CanvasApp {
 
   /* ---------- pointer state machine ---------- */
 
-  // The old _canvasPoint (now on the prototype above) maps client -> natural
-  // px including the view pan. Hit-test, resize and rotate all use it.
-
   // --- arbitration helpers -------------------------------------------------
-  // Every register/unregister goes through these two so canvas.dataset.pointers
-  // is always the live count (a leak is measurable from the gate probes).
+  // Register/unregister go through these two so canvas.dataset.pointers is
+  // always the live count — a deliberate measurement contract, and the one
+  // place a leaked contact becomes externally observable.
   _registerPointer(id, x, y) {
     const n = this._pointers.add(id, x, y);
     this.els.canvas.dataset.pointers = String(n);
@@ -658,14 +647,10 @@ export class CanvasApp {
   _enterPanMode() {
     // A second pointer landed: cancel any in-flight sticker gesture and
     // restore that sticker to its gesture-start geometry (Store.cancelDrag
-    // already holds the pre-drag snapshot from beginDrag()). The tap is also
-    // cancelled — a pan attempt must never drop a sticker.
+    // already holds the pre-drag snapshot from beginDrag()). The tap is
+    // cancelled too, and _lastTap voided, so the gesture cannot end in a
+    // placement or a delete.
     if (this._tap) this._tap.cancelled = true;
-    // A second finger means this is a pan, not a tap — BUT the gate's
-    // two-finger pan happens BETWEEN the one-finger drag and the
-    // tap-for-delete->double-tap sequence. Voiding _lastTap here is
-    // harmless: the next gesture re-seeds it. Keep it voided so a tap
-    // right after a pan cannot read as a double-tap of the pre-pan tap.
     this._lastTap = null;
     if (this.drag) {
       this.store.cancelDrag();
@@ -723,57 +708,42 @@ export class CanvasApp {
     this._draw();
   }
 
+  /**
+   * pointerup of a single-finger gesture: decide tap vs drag, then place or
+   * delete. A second finger cancels the tap upstream (see _enterPanMode), so a
+   * pan attempt can never land here.
+   */
   _maybePlaceOnTap(e) {
     const tap = this._tap;
     this._tap = null;
-    // Remember the pointerup point for the browser dblclick that follows
-    // (desktop). dblclick has no client coords, so it hit-tests this point.
+    // Kept for the browser dblclick that follows a mouse gesture: dblclick
+    // carries no client coords, so it hit-tests this point.
     this._lastUp = { x: e.clientX, y: e.clientY };
     if (!tap || tap.cancelled || !this.image) return;
-    const dx = e.clientX - tap.x;
-    const dy = e.clientY - tap.y;
-    if (Math.hypot(dx, dy) > 8) return;
+    if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) return;   // a drag, not a tap
     if (performance.now() - tap.t > 500) return;
     const curTap = { x: e.clientX, y: e.clientY, t: performance.now() };
-    // Double-tap window (350 ms, 25 CSS px) is decided HERE, inside the
-    // pointer router — a separate listener would race pan/drag arbitration.
-    // A tap cancelled by a second finger never reaches here, satisfying
-    // "no second finger involved". See geometry.isDoubleTap (pure, tested).
+    // The double-tap window (350 ms, 25 CSS px) is decided HERE, in the same
+    // router that arbitrates pan/drag, so the two cannot race.
     if ((e.pointerType === 'touch' || e.pointerType === 'pen') && isDoubleTap(this._lastTap, curTap)) {
-      // Delete the topmost sticker under the SECOND tap's point (reverse-z
-      // hitTest). If it was the selected one, store.remove clears the
-      // selection, hiding the frame via onStateChange.
-      // Try both points: the second tap's up (this event) and the FIRST
-      // tap's placement point (this._lastTap coords). The double-tap's
-      // FIRST tap placed the sticker; if the second tap's up maps to a
-      // different natural point (e.g. the pan moved the image between
-      // the two touches — NOT the case in the gate, but the spec says
-      // "under the point" of the second tap), both are tried, topmost
-      // first. For the gate they coincide at (124,594).
-      const prev = this._lastTap;
+      // Delete the topmost sticker under the second tap. Its release point goes
+      // first, then the first tap's point — which is where the sticker was
+      // placed, and the correct target if the image moved between the touches.
+      const first = this._lastTap;
       this._lastTap = null;
-      const tryRemoveAt = (cx, cy) => {
-        if (cx == null || cy == null) return false;
-        const pt = this._canvasPoint({ clientX: cx, clientY: cy });
-        const hitId = hitTest(pt, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
-        if (hitId) {
-          this.store.remove(hitId);
-          return true;
-        }
-        return false;
-      };
-      if (!tryRemoveAt(e.clientX, e.clientY)) {
-        if (prev) tryRemoveAt(prev.x, prev.y);
+      if (!this._removeTopmostAt(e.clientX, e.clientY) && first) {
+        this._removeTopmostAt(first.x, first.y);
       }
       return;
     }
-    const pt = this._canvasPoint(e);
-    const hitId = hitTest(pt, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
-    if (hitId) {
-      this._lastTap = curTap;
-      return;
-    }
     this._lastTap = curTap;
+    const pt = this._canvasPoint(e);
+    if (hitTest(pt, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight)) return;
+    this._placeStickerAt(pt);
+  }
+
+  /** Drop the active tool's sticker centred on `pt` (natural px). */
+  _placeStickerAt(pt) {
     const { tool } = this.store.state;
     if (tool !== 'emoji' && tool !== 'blur' && tool !== 'mosaic') {
       this.store.select(null);
@@ -782,11 +752,10 @@ export class CanvasApp {
     const cx = norm(pt.x, this.image.naturalWidth);
     const cy = norm(pt.y, this.image.naturalHeight);
     if (tool === 'emoji') {
-      const src = this.lastPickedSrc;
       const w = 0.18;
       this.store.add({
         kind: 'emoji',
-        src,
+        src: this.lastPickedSrc,
         cx,
         cy,
         w,
@@ -796,77 +765,70 @@ export class CanvasApp {
     } else {
       this.store.add({ kind: tool, cx, cy, w: 0.28, h: 0.28, rot: 0 });
     }
-    this.store.select(this.store.state.selection);
   }
 
   _endStickerGate(e) {
     this._unregisterPointer(e.pointerId);
     if (this._pointers.size === 1) {
-      // Dropping from 2 -> 1: end the pan, reset the centroid anchor for the
-      // remaining finger so it does not jump, and end any pan tracking. The
-      // remaining finger is NOT promoted to a sticker drag — the gesture
-      // began as a pan and stays one until all fingers lift.
+      // Dropping from 2 -> 1: end the pan and drop the centroid anchor so the
+      // remaining finger does not jump. It is NOT promoted to a sticker drag —
+      // the gesture began as a pan and stays one until all fingers lift.
       this._pan = null;
       delete this.els.canvas.dataset.panning;
       return;
     }
-    if (this._pointers.size === 0) {
-      this._pan = null;
-      delete this.els.canvas.dataset.panning;
-    // The tap path runs for every single-finger pointerup; IT discards
-    // the drag-end case via the movedDist>8 early return (a sticker drag
-    // travels >8px). A sticker TAP (movedDist<=8) seeds _lastTap so the
-    // next tap deletes; an empty-space tap seeds + places (or double-tap
-    // deletes).
-    // NOTE: movedDist>8-on-sticker is a drag END, and the drag branch
-    // below commits it. The tap path for a tap must run BEFORE the
-    // drag's commit so the commit doesn't see the tap's mutations (add).
-    // Order here: tap first (its add/remove is part of THIS gesture), then
-    // the drag commit. A drag's tap-path visit early-returns without
-    // mutating (movedDist>8), so no ordering bug.
-    if (this._tap && !this._tap.cancelled) {
-        // Placement is evaluated on pointerup of the single-finger gesture.
-        this._maybePlaceOnTap(e);
-      } else {
-        this._tap = null;
-      }
-      if (this.drag) {
-        // Only commit a canvas-originated move drag here. A handle drag
-        // commits in its own `up` (which runs first when the pointer was
-        // captured by the handle); if the drag is still present via the
-        // canvas path it is a move drag.
-        const wasMove = this.drag.mode === 'move';
-        this.drag = null;
-        delete this.els.canvas.dataset.dragging;
-        if (wasMove) this.store.commitDrag();
-      }
+    if (this._pointers.size !== 0) return;
+    this._pan = null;
+    delete this.els.canvas.dataset.panning;
+    // Order matters: the tap path first (its add/remove belongs to THIS
+    // gesture), then the drag commit. A drag's visit to the tap path
+    // early-returns on distance without mutating, so they cannot interfere.
+    if (this._tap && !this._tap.cancelled) this._maybePlaceOnTap(e);
+    else this._tap = null;
+    if (this.drag) {
+      // Only a canvas-originated move drag commits here. A handle drag commits
+      // in its own `up`, which runs first when the handle captured the pointer.
+      const wasMove = this.drag.mode === 'move';
+      this.drag = null;
+      delete this.els.canvas.dataset.dragging;
+      if (wasMove) this.store.commitDrag();
     }
   }
 
+  /**
+   * Remove the topmost sticker at a client (CSS) point. THE removal path — the
+   * desktop dblclick and the touch double-tap both land here.
+   * @param {number} x client (CSS) x
+   * @param {number} y client (CSS) y
+   * @returns {boolean} true when a sticker was removed
+   */
   _removeTopmostAt(x, y) {
-    if (!this.image) return false;
-    const pt = this._cssToCanvasPx(x, y);
-    // canvas px -> natural px (same conversion as _canvasPoint).
-    const nat = { x: pt.x / this.scale, y: pt.y / this.scale };
-    const hit = hitTest(nat, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
+    if (!this.image || x == null || y == null) return false;
+    const pt = this._canvasPoint({ clientX: x, clientY: y });
+    const hit = hitTest(pt, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
     if (!hit) return false;
-    this.store.remove(hit);
-    // Remove also handles selection when the hit was selected (store.remove
-    // clears it). The overlay follows via onStateChange -> _draw.
+    this.store.remove(hit);   // also clears the selection when the hit was selected
     this._lastTap = null;
     return true;
   }
 
+  /** Wire the pointer state machine. Order is load-bearing: the handles are
+   *  registered before the window release net, so a handle's own pointerdown
+   *  still stops propagation to the canvas and its `up` keeps ownership. */
   _bindPointer() {
-    const canvas = this.els.canvas;
+    this._bindDesktopDblclick();
+    this._bindCanvasPointer();
+    this._bindWindowMove();
+    this._activeHandlePointerId = null;
+    this._bindHandles();
+    this._bindReleaseNet();
+  }
 
-    // Desktop double-click: browser's own click sequence decides this (the
-    // probe sends real CDP clickCount 1 then 2 and asserts the browser
-    // dblclick fires). Hit-test the topmost sticker at the pointerup point.
-    // The desktop dblclick in THIS environment is the browser's own;
-    // touch portals do not produce one. The gate's double-tap is decided in
-    // _maybePlaceOnTap (the router), as documented there and in PLAN.md.
-    canvas.addEventListener('dblclick', (e) => {
+  /** Desktop double-click removes the topmost sticker: the browser's own click
+   *  sequence decides a mouse double-click. Touch has no dblclick — its
+   *  double-tap is decided in _maybePlaceOnTap. */
+  _bindDesktopDblclick() {
+    this.els.canvas.addEventListener('dblclick', (e) => {
       if (!this.image) return;
       const at = e.clientX != null && e.clientY != null
         ? { x: e.clientX, y: e.clientY }
@@ -874,6 +836,13 @@ export class CanvasApp {
       if (!at) return;
       this._removeTopmostAt(at.x, at.y);
     });
+  }
+
+  /** One-finger arbitration. A press on a sticker starts a move drag; an
+   *  empty-space press defers placement to pointerup. A second pointer switches
+   *  the gesture to a view pan instead. */
+  _bindCanvasPointer() {
+    const canvas = this.els.canvas;
 
     canvas.addEventListener('pointerdown', (e) => {
       if (!this.image) return;
@@ -886,7 +855,7 @@ export class CanvasApp {
       // need capture for drag-outside; capture is harmless there. Capture is
       // therefore only for non-touch pointers, and it is released on pointerup.
       if (e.pointerType !== 'touch') {
-        try { canvas.setPointerCapture(e.pointerId); } catch { /* synthetic probes */ }
+        try { canvas.setPointerCapture(e.pointerId); } catch { /* no active pointer */ }
       }
 
       if (this._pointers.size >= 2) {
@@ -908,10 +877,8 @@ export class CanvasApp {
         canvas.dataset.dragging = '1';
         return;
       }
-      // Empty space: tap-to-place is DEFERRED to pointerup (gated by
-      // distance/time/not-cancelled). Selection clear is also deferred so
-      // desktop click behaviour stays: the desktop probe dispatches
-      // pointerdown+pointerup at once — both must still land a sticker.
+      // Empty space: tap-to-place and the selection clear are both DEFERRED to
+      // pointerup, so a press that turns into a pan or a drag changes nothing.
     });
 
     canvas.addEventListener('pointermove', (e) => {
@@ -965,151 +932,127 @@ export class CanvasApp {
 
     canvas.addEventListener('pointerup', (e) => this._endStickerGate(e));
     canvas.addEventListener('pointercancel', (e) => this._endStickerGate(e));
+  }
 
-    // Handle buttons (DOM chrome) get their own pointer handlers so they can
-    // start resize/rotate without the canvas eating the event. They are
-    // touch targets: the gesture must not throw when driven by a real touch
-    // (pointer capture on the handle element + the pointerId from the event).
-    // Handle pointer participation in _pointers matters for M6 later (a second
-    // finger landing on a handle currently enters pan mode); for M5 the canvas
-    // and handle edges both enter the same arbitration but pan proceeds on
-    // canvas moves only — a second finger's handle move is ignored by the
-    // move-guard below.
-    // Canvas-level safety net: a pointer that lifted while an element other
-    // than the canvas was under it (a handle, a panel, outside the canvas)
-    // fires pointerup/pointercancel THERE, not on the canvas (touch pointers
-    // are never captured by the canvas). Without this, that contact survives
-    // in _pointers and the next one-finger tap reads as a two-finger pan.
+  /**
+   * A tracked pointer that moves off the canvas (a handle captured it mid-pinch)
+   * must still update the tracker: the pan derives its focal distance from it, so
+   * a finger that leaves a handle would otherwise be invisible to the zoom.
+   */
+  _bindWindowMove() {
     window.addEventListener('pointermove', (e) => {
       if (!this._pointers.has(e.pointerId)) return;
       this._registerPointer(e.pointerId, e.clientX, e.clientY);
       if (this._pan) this._applyPanMove();
     });
+  }
+
+  /**
+   * Safety net for a pointer that lifted while an element other than the canvas
+   * was under it (a handle, the panel, outside the canvas): its pointerup fires
+   * THERE, so without this the contact survives in the tracker and the next
+   * one-finger tap reads as a two-finger pan. Registered in the capture phase and
+   * AFTER the handles, so a handle's own pointerdown still stops propagation and
+   * its `up` keeps ownership of its pointer.
+   */
+  _bindReleaseNet() {
     const releasePointer = (e) => {
-      if (e.target === canvas) return; // canvas handlers above own it
-      // A pointer captured by a handle is owned by that handle's `up`
-      // (defined below, per-handle closure). The handle's own
-      // pointerup/pointercancel will unregister it exactly once and commit
-      // the drag. Stealing it here double-unregisters and corrupts the
-      // handle-drag commit.
-      if (this._activeHandlePointerId === e.pointerId) return;
+      if (e.target === this.els.canvas) return;                 // canvas handlers own it
+      if (this._activeHandlePointerId === e.pointerId) return;  // the handle's `up` owns it
       if (!this._pointers.has(e.pointerId)) return;
       this._endStickerGate(e);
     };
-    // For handle interactions, the handle itself manages the
-    // pointerup/pointercancel lifetimes. Stash the handle-originated
-    // pointerId so releasePointer doesn't steal it: `up` below is the
-    // handle's own unregister (which must also remove the move listeners
-    // and commit the drag exactly once). Without this, the release path
-    // unregisters first and the handle's commit fires without
-    // the pointer — a stale-drag state leak of the same class.
-    this._activeHandlePointerId = null;
-    // Handle drag: the handle captures its pointer; its `up` below unregisters.
-    for (const el of this.els.selectBox.querySelectorAll('.handle')) {
-      el.addEventListener('pointerdown', (e) => {
-        e.stopPropagation();
-        const st = this._selectedSticker();
-        if (!st || !this.image) return;
-        this._registerPointer(e.pointerId, e.clientX, e.clientY);
-        if (this._pointers.size >= 2) {
-          this._enterPanMode();
-          return;
-        }
-        if (e.pointerType !== 'touch') {
-          try { el.setPointerCapture(e.pointerId); } catch { /* synthetic events have no active pointer */ }
-        }
-        const handle = el.dataset.handle;
-        if (!handle) return;
-        if (handle === 'rotate') {
-          this.drag = { mode: 'rotate', id: st.id, startRot: st.rot ?? 0 };
-        } else {
-          this.drag = { mode: 'resize', id: st.id, handle, keepAspect: !e.shiftKey };
-        }
-        this.store.beginDrag(st.id);
-        this._activeHandlePointerId = e.pointerId;
-        const move = (ev) => {
-          // A tracked move refreshes its coordinates even when this handle
-          // has no drag to drive (see the canvas move handler): the pan
-          // derives its distance from the tracker, so skipping the record
-          // would freeze the pinch.
-          if (this._pointers.has(ev.pointerId)) this._registerPointer(ev.pointerId, ev.clientX, ev.clientY);
-          if (!this.drag) return;
-          if (this._pointers.size >= 2) return;
-          // The handle captured this pointer: key the stored handle off the
-          // drag's own handle (this.drag.handle), NOT ev.target. Under touch,
-          // ev.target can be an inner element or the canvas when capture
-          // re-targets, which made el.dataset.handle read undefined and threw
-          // resizeRect: unknown handle "undefined".
-          const pt = this._canvasPoint(ev);
-          if (this.drag.mode === 'rotate') {
-            const cxp = px(st.cx, this.image.naturalWidth);
-            const cyp = px(st.cy, this.image.naturalHeight);
-            this.store.move(st.id, { rot: rotateTo({ x: cxp, y: cyp }, pt, Boolean(ev.shiftKey)) });
-          } else {
-            this.store.move(
-              st.id,
-              resizeRect(st, this.drag.handle, pt, {
-                imgW: this.image.naturalWidth, imgH: this.image.naturalHeight, keepAspect: this.drag.keepAspect,
-              }),
-            );
-          }
-          this._draw();
-        };
-        const up = () => {
-          el.removeEventListener('pointermove', move);
-          el.removeEventListener('pointerup', up);
-          el.removeEventListener('pointercancel', up);
-          canvas.removeEventListener('pointermove', move);
-          canvas.removeEventListener('pointerup', up);
-          canvas.removeEventListener('pointercancel', up);
-          this._unregisterPointer(e.pointerId);
-          if (this._activeHandlePointerId === e.pointerId) this._activeHandlePointerId = null;
-          if (this._cancelHandleDrag === abandon) this._cancelHandleDrag = null;
-          this.drag = null;
-          this.store.commitDrag();
-        };
-        // A cancelled drag's `up` never fires (the pan case); the router's
-        // cancel path calls `abandon` first so the orphaned `up` becomes a
-        // no-op instead of a second unregister.
-        const abandon = () => {
-          el.removeEventListener('pointermove', move);
-          el.removeEventListener('pointerup', up);
-          el.removeEventListener('pointercancel', up);
-          canvas.removeEventListener('pointermove', move);
-          canvas.removeEventListener('pointerup', up);
-          canvas.removeEventListener('pointercancel', up);
-          if (this._activeHandlePointerId === e.pointerId) this._activeHandlePointerId = null;
-        };
-        el.addEventListener('pointermove', move);
-        el.addEventListener('pointerup', up);
-        el.addEventListener('pointercancel', up);
-        // A finger that LEAVES the handle under touch is not owned by the
-        // handle element, so the canvas-level pointermove is the only place
-        // its moves are ever delivered during a two-finger gesture. Both
-        // subscriptions share one `up` so the drag ends exactly once.
-        canvas.addEventListener('pointermove', move);
-        canvas.addEventListener('pointerup', up);
-        canvas.addEventListener('pointercancel', up);
-        this._cancelHandleDrag = abandon;
-        // The cancel path calls this through `_cancelHandleDrag` so the
-        // orphan `up` never runs a second time. It is the only guard that
-        // must fire, because a stale active drag was cancelled and its
-        // own move guard would otherwise starve the pan.
-        if (this._pan) delete this.els.canvas.dataset.dragging;
-      });
-    }
-    // Safety-net listeners must be registered AFTER the handles so a handle
-    // pointerdown still stops propagation to the canvas; the release path is
-    // on window (bubble) and only fires for pointers tracked but not owned
-    // by the canvas/handle handlers above.
     window.addEventListener('pointerup', releasePointer, true);
     window.addEventListener('pointercancel', releasePointer, true);
   }
 
-  _destroy() {
-    // Genuinely unreachable in normal use: the app is instantiated once
-    // per page (the bootstrap below guards duplicates), so there is no
-    // unbind path. This marks the integration point for future removal.
+  /** The resize/rotate handles are DOM chrome, so they need their own pointer
+   *  handlers; the drag itself lives in _startHandleDrag. */
+  _bindHandles() {
+    for (const el of this.els.selectBox.querySelectorAll('.handle')) {
+      el.addEventListener('pointerdown', (e) => this._startHandleDrag(el, e));
+    }
+  }
+
+  /**
+   * Drive one resize/rotate drag. The handle owns its pointer for the drag's
+   * lifetime; `_cancelHandleDrag` lets the pan path abandon it (a second finger
+   * landing) so the orphaned `up` cannot unregister that pointer twice.
+   */
+  _startHandleDrag(el, e) {
+    e.stopPropagation();
+    const st = this._selectedSticker();
+    if (!st || !this.image) return;
+    this._registerPointer(e.pointerId, e.clientX, e.clientY);
+    if (this._pointers.size >= 2) {
+      this._enterPanMode();
+      return;
+    }
+    if (e.pointerType !== 'touch') {
+      try { el.setPointerCapture(e.pointerId); } catch { /* no active pointer */ }
+    }
+    const handle = el.dataset.handle;
+    if (!handle) return;
+    this.drag = handle === 'rotate'
+      ? { mode: 'rotate', id: st.id }
+      : { mode: 'resize', id: st.id, handle, keepAspect: !e.shiftKey };
+    this.store.beginDrag(st.id);
+    this._activeHandlePointerId = e.pointerId;
+
+    const move = (ev) => {
+      // A tracked move refreshes its coordinates even when this handle has no
+      // drag to drive: the pan derives its distance from the tracker.
+      if (this._pointers.has(ev.pointerId)) this._registerPointer(ev.pointerId, ev.clientX, ev.clientY);
+      if (!this.drag) return;
+      if (this._pointers.size >= 2) return;
+      // Key the handle off the DRAG, not ev.target: under touch capture,
+      // ev.target can be an inner element or the canvas.
+      const pt = this._canvasPoint(ev);
+      if (this.drag.mode === 'rotate') {
+        const cxp = px(st.cx, this.image.naturalWidth);
+        const cyp = px(st.cy, this.image.naturalHeight);
+        this.store.move(st.id, { rot: rotateTo({ x: cxp, y: cyp }, pt, Boolean(ev.shiftKey)) });
+      } else {
+        this.store.move(
+          st.id,
+          resizeRect(st, this.drag.handle, pt, {
+            imgW: this.image.naturalWidth, imgH: this.image.naturalHeight, keepAspect: this.drag.keepAspect,
+          }),
+        );
+      }
+      this._draw();
+    };
+    // Both subscriptions (handle + canvas: a finger that LEAVES the handle is
+    // only delivered on the canvas) share one detach and one `up`, so the drag
+    // ends exactly once.
+    const detach = () => {
+      for (const target of [el, this.els.canvas]) {
+        target.removeEventListener('pointermove', move);
+        target.removeEventListener('pointerup', up);
+        target.removeEventListener('pointercancel', up);
+      }
+    };
+    const up = () => {
+      detach();
+      this._unregisterPointer(e.pointerId);
+      if (this._activeHandlePointerId === e.pointerId) this._activeHandlePointerId = null;
+      if (this._cancelHandleDrag === abandon) this._cancelHandleDrag = null;
+      this.drag = null;
+      this.store.commitDrag();
+    };
+    // A cancelled drag's `up` never fires (the pan case); the cancel path calls
+    // `abandon` first, so the orphaned `up` is already detached.
+    const abandon = () => {
+      detach();
+      if (this._activeHandlePointerId === e.pointerId) this._activeHandlePointerId = null;
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    this.els.canvas.addEventListener('pointermove', move);
+    this.els.canvas.addEventListener('pointerup', up);
+    this.els.canvas.addEventListener('pointercancel', up);
+    this._cancelHandleDrag = abandon;
   }
 
   /* ---------- keyboard ---------- */
@@ -1155,8 +1098,7 @@ export class CanvasApp {
         const dx = e.key === 'ArrowRight' ? pxStep : e.key === 'ArrowLeft' ? -pxStep : 0;
         const dy = e.key === 'ArrowDown' ? pxStep : e.key === 'ArrowUp' ? -pxStep : 0;
         this.store.move(st.id, (() => {
-          const cur = { cx: st.cx, cy: st.cy };
-          const out = nudge({ ...st, cx: cur.cx, cy: cur.cy }, dx, dy, this.image.naturalWidth, this.image.naturalHeight);
+          const out = nudge(st, dx, dy, this.image.naturalWidth, this.image.naturalHeight);
           return { cx: out.cx, cy: out.cy };
         })());
       }

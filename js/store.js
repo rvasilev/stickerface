@@ -210,9 +210,7 @@ export class Store {
     });
     const after = this._snapshot();
     this._push({ undo: () => this._restore(before), redo: () => this._restore(after) });
-    // Its own event type: the layer list must rebuild when the ORDER changes. Today it
-    // also rebuilds via the history event that _push emits above, so this is making an
-    // accidental dependency explicit rather than fixing a visible bug.
+    // Its own event type: the layer list must rebuild when the ORDER changes.
     this._emit({ type: 'reorder' });
   }
 
