@@ -168,6 +168,17 @@ rather than letting "no change" read as success.
 
 ## Manual checklist (things the probes cannot see)
 
+- **Handle drags that leave the handle.** No gate drags a handle far enough off the
+  handle to re-target `pointermove`, so both hazards documented in `_startHandleDrag` are
+  unverified. Mutation-tested 2026-11-14: keying the handle off `ev.target` instead of the
+  drag (the throw-`unknown handle "undefined"` bug) **survives** a full 5/5
+  `handles-probe` run, and so does deleting the `_activeHandlePointerId` guard that stops
+  the release net stealing a handle's pointer.
+- **The 2 → 1 finger transition.** Removing the `_pan = null` reset applied when one finger
+  of a pinch lifts **survives** `mobile-probe` (12/12) and `zoom-probe` (9/9): neither
+  gate pinches and then lifts a finger while checking that the remaining finger does not
+  jump. The same harness shows both gates *do* catch a corrupted fit-pan (7/12 vs 12/12),
+  so this is a coverage hole, not a dead gate.
 - `ctx.filter` blur on Safari < 18 (the harness runs Chromium; the fallback path is
   not covered — see `docs/DEPS.md`).
 - A 40 MP photo: preview stays interactive, export returns full-resolution output.

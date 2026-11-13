@@ -812,9 +812,11 @@ export class CanvasApp {
     return true;
   }
 
-  /** Wire the pointer state machine. Order is load-bearing: the handles are
-   *  registered before the window release net, so a handle's own pointerdown
-   *  still stops propagation to the canvas and its `up` keeps ownership. */
+  /** Wire the pointer state machine. A handle's pointerdown stops propagation, so
+   *  the canvas never sees it; `_activeHandlePointerId` (set in
+   *  _startHandleDrag) is what stops the capture-phase release net from stealing a
+   *  handle's pointer. That guard is dynamic, so it does NOT depend on
+   *  registration order. */
   _bindPointer() {
     this._bindDesktopDblclick();
     this._bindCanvasPointer();
