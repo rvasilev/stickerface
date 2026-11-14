@@ -485,9 +485,9 @@ class CanvasApp {
       box.style.transform = '';
     }
     // Project the chrome on every frame: the frame's size changes continuously
-    // during a resize drag, and crossing the threshold has to be seen. _syncChrome
-    // writes only when the state flips, and never while a drag is live — so the
-    // handles cannot vanish under the finger that is holding one.
+    // during a resize drag or a pinch, and crossing the threshold has to be seen.
+    // _syncChrome writes only when the state flips, and holds off entirely while a
+    // gesture is live, so the handles cannot vanish under the contact using them.
     this._syncChrome(Math.min(cw, ch) < FRAME_MIN_CHROME_PX);
   }
 
@@ -1651,13 +1651,16 @@ class CanvasApp {
    * the frame's own class, the stage hint and the move mark (via the class).
    *
    * Called on every frame — the frame's size changes continuously during a resize
-   * drag — so it writes only when the state FLIPS, and never while a drag is live:
-   * removing the element under the pointer mid-gesture is how a captured pointer
-   * changes target. Nothing here touches the store, so no undo entry can come out
-   * of a size crossing the threshold.
+   * drag or a pinch — so it writes only when the state FLIPS, and never while a
+   * gesture is live: the handles ARE the elements a touch captured, so a flip
+   * mid-gesture changes what the pointer is driving (and the chrome vanishing under
+   * the finger that is using it reads as a glitch even when the gesture survives —
+   * measured, see tests/e2e/pinch-shrink-probe.js). Nothing here touches the store,
+   * so no undo entry can come out of a size crossing the threshold.
    */
   _syncChrome(frameTooSmall) {
-    const small = frameTooSmall && !this.drag;
+    const live = this.drag || this._xform || this._pan;
+    const small = frameTooSmall && !live;
     if (small === this._chromeSmall) return;
     this._chromeSmall = small;
     // `hidden` removes reach AND rendering (no author rule sets `display` on these

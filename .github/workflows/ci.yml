@@ -194,6 +194,17 @@ jobs:
           E2E_PROBE: tests/e2e/handle-pinch-probe.js
         run: bash scripts/e2e.sh
 
+      # The chrome hides itself once a sticker is pinched below 36 CSS px, and a touch
+      # pointer is implicitly captured by the very handle elements `_syncChrome` hides.
+      # This is the ONLY probe that pinches INWARD — every other one grows the sticker,
+      # so none of them reaches the threshold at all — and it reads BETWEEN moves, which
+      # the steps phase allows and a mouse drag cannot.
+      - name: Gate — a pinch across the chrome threshold keeps its handles up
+        env:
+          E2E_MOBILE: "1"
+          E2E_PROBE: tests/e2e/pinch-shrink-probe.js
+        run: bash scripts/e2e.sh
+
       # Desktop mode on purpose: every criterion here is measurable with mouse
       # input (the handle drag uses the harness's real mouse drag), so this step
       # has no by-design red — unlike layers-probe, which needs touch.
