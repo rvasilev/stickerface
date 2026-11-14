@@ -394,6 +394,8 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M9** | Move/Resize modes: what a press on the selected sticker DOES is explicit, chosen from the pad's mode row — so the 8 resize handles and the rotate handle are Resize-mode chrome, not always-on | `tests/e2e/mode-probe.js` = 10/10, every M1–M8 gate green | **done** (2026-11-14) — **superseded by M13** |
 | **M10** | first-run coach mark: the first photo explains the gesture model (and names the Move/Resize row) once per browser — device-appropriate wording, dismissible by its button or by simply starting to use the canvas, and never repeated | `tests/e2e/coach-probe.js` = 9/9, every M1–M9 gate green | **done** (2026-11-14) |
 | **M13** | three-handle chrome, no mode: the selected sticker carries ONE resize handle (SE) + ONE rotate dot, and its body is the move handle — with a `pointer-events: none` move mark at the centre as the signpost. The M9 mode row, its `m`/`r` keys and its two hint strings are deleted; the chrome hides itself below 36 CSS px (the measured free-at-36/blocked-at-30 boundary) and returns when the sticker grows, and never mid-gesture. Desktop gets a `move` cursor over a sticker | `tests/e2e/three-handle-probe.js` = 11/11, `tests/e2e/pinch-shrink-probe.js` = 3/3; `handles-probe`, `selection-probe`, `rotate-grab-probe`, `pad-probe`, `handle-pinch-probe`, `coach-probe` and the journey gate all green; `mode-probe.js` retired | **done** (2026-11-14) |
+| **M14** | export formats and compression levels: a third format (WebP) plus a per-format level the encoder actually honours. PNG gets an honest sentence instead of a dead control (measured: `toBlob` ignores the quality argument for PNG entirely), and the file extension follows what the browser PRODUCED — a browser with no WebP encoder answers with PNG silently | `tests/e2e/export-format-probe.js` = 7/7, `tests/export-format.test.js` green (Safari's fallback stubbed as a `blob.type`), `polish-probe` + the journey gate still green | **done** (2026-11-15) |
+| **M15** | "Start over": the reset an INSTALLED app has no other way to perform — back to the empty stage (and to "choose a photo") with the photo, stickers, history and carried layout cleared, two presses to discard, refused mid-gesture | `tests/e2e/reset-probe.js` = 7/7 (virgin-signature diff; dropping `pendingLayout` from the reset = RED and names that field) | **done** (2026-11-15) |
 
 M11 (installable) and M12 (offline) shipped after M10; their records are in the status
 log below rather than as rows here.
@@ -406,6 +408,32 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-15** — export formats + compression levels (M14) and "Start over" (M15), in one
+  packet. M14: a third export button (WebP) and a per-format level. Two platform facts decided
+  the shape, both measured or sourced before any code: `toBlob` ignores the quality argument for
+  PNG entirely (byte-identical 12,773,958 B at 0.5/0.8/0.92/1.0 — so PNG gets a sentence, not a
+  dead control), and Safari has NO canvas WebP encoder at any version (the spec requires a silent
+  fall back to PNG, so a hand-built `.webp` name ships PNG bytes). The second one is why
+  `resolveExportFormat(requested, actual)` is a PURE function with the produced type injected:
+  the Safari case is unit-tested with a stub `blob.type`, no Safari required. Levels are NAMED
+  (`smaller 0.5 / balanced 0.75 / better 0.92 / maximum 0.95`) and never reach 1.0, where WebP
+  switches to true lossless (2.4 MB → 7.3 MB measured). `better = 0.92` keeps JPEG byte-identical
+  to the previous build. The gate reads the BYTES, not the label: it wraps `URL.createObjectURL`
+  to capture the real Blob, and mutation (handing the encoder a hardcoded 0.92) leaves the status
+  naming "Smaller"/"Maximum" while both exports come back 449,996 B → `levelReachesTheEncoder`
+  RED at 6/7. That is the stop condition the plan named: a level control wired to nothing is the
+  update-bar bug in another costume.
+- **2026-11-15** — M15 "Start over", from "in browser mode we able to refresh the page what resets
+  the state. we have nothing like this in installed mode". The gap was wider than installed mode:
+  once a photo is loaded `#stage-empty` (the only "choose a photo") is hidden, so even in a
+  browser the only re-pick paths were drag-and-drop and "apply layout to next photo" (which keeps
+  the stickers). A SOFT reset, not `location.reload()`: it shares `_resetTransientInput()` with
+  `fitCanvas()` so a new photo and a reset cannot disagree about "fresh", keeps preferences and
+  the decoded-artwork caches, clears `customBitmaps`, and clears `pendingLayout` explicitly —
+  the field whose omission would look complete and still apply an old layout to the NEXT photo.
+  Two presses (`.armed` + `Discard? press again`), and it refuses mid-gesture. The gate captures
+  a VIRGIN-STATE SIGNATURE before any photo, mutates hard, resets, and diffs field by field:
+  dropping `pendingLayout` from the reset is RED with `virginDiff: ["pendingLayout"]`.
 - **2026-11-14** — three-handle chrome (M13), and the mode row (M9) is gone. Requested
   as "selected sticker should have 3 handles visible: to move, to rotate, to resize" +
   "the body is enough" for move. The count was never the point: the 8-handle ring was

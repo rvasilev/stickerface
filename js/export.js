@@ -23,6 +23,125 @@ export const SAFARI_LEGACY_MAX_CANVAS_PIXELS = 16777216;
 /** Safari / iOS 18+: 8192x8192 (WebKit bug 271002). */
 export const SAFARI_MODERN_MAX_CANVAS_PIXELS = 67108864;
 
+/* ---------- format, compression level, and the settings that hold them ---------- */
+
+/**
+ * The levels a lossy export offers, per format. PNG is absent on purpose: `toBlob`'s quality
+ * argument applies to lossy formats only, so a PNG "level" would be a control wired to nothing
+ * (measured: byte-identical output across the whole range).
+ *
+ * `better` is 0.92 — the value this module hardcoded before levels existed — so the default JPEG
+ * export is byte-for-byte what it always was. Nothing reaches 1.0: for WebP that is not "maximum
+ * quality" but a switch to true lossless (measured 2.4 MB -> 7.3 MB from 0.92 to 1.0), and JPEG at
+ * 1.0 is still lossy and still triples the file.
+ */
+export const EXPORT_LEVELS = {
+  jpeg: { smaller: 0.5, balanced: 0.75, better: 0.92, maximum: 0.95 },
+  webp: { smaller: 0.5, balanced: 0.75, better: 0.92, maximum: 0.95 },
+};
+
+/** The level used when nothing is stored, or when the stored one is unknown. */
+export const DEFAULT_EXPORT_LEVEL = 'better';
+
+/** One key for both formats: the two scales are different, but they are read and written together. */
+export const EXPORT_SETTINGS_KEY = 'stickerface.export.levels';
+
+/**
+ * The quality for a format+level, or undefined for a format that has no level.
+ * @param {string} format 'png' | 'jpeg' | 'webp'
+ * @param {string} [level] a key of EXPORT_LEVELS[format]
+ * @returns {number|undefined}
+ */
+export function levelValue(format, level) {
+  const table = EXPORT_LEVELS[format];
+  if (!table) return undefined;
+  return table[level] ?? table[DEFAULT_EXPORT_LEVEL];
+}
+
+/**
+ * What the browser actually produced, versus what it was asked for.
+ *
+ * This exists because the mismatch is SILENT: the HTML spec requires a browser that cannot encode
+ * the requested type to export `image/png` instead, with no error and no rejection — and Safari has
+ * no canvas WebP encoder at all (every version to date). So asking for WebP there returns valid
+ * PNG bytes, and naming that file `.webp` ships a mislabel that opens fine in the browser that
+ * wrote it and breaks anything downstream that trusts the extension. The returned type is the only
+ * signal there is, which is why the extension is derived from `actual`.
+ *
+ * Pure on purpose: the produced type is an ARGUMENT, so the Safari case is unit-testable without
+ * owning a Safari.
+ *
+ * @param {string} requested the mime that was asked for
+ * @param {string} actual the returned Blob's type (may be missing)
+ * @returns {{mime:string, ext:string, fellBack:boolean}}
+ */
+export function resolveExportFormat(requested, actual) {
+  const mime = actual === 'image/jpeg' || actual === 'image/webp' ? actual : 'image/png';
+  const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+  return { mime, ext, fellBack: mime !== requested };
+}
+
+/**
+ * The download name. Dumb on purpose: the base is already sanitised by exportImage, and the only
+ * thing this adds is the extension — which must be the PRODUCED one, never the requested one.
+ * @param {string} base sanitised photo name
+ * @param {string} ext 'png' | 'jpg' | 'webp'
+ * @returns {string}
+ */
+export function exportFilename(base, ext) {
+  return `${base}_stickerface.${ext}`;
+}
+
+/**
+ * Stored levels, validated against the CURRENT tables: a name that no longer exists (or a format
+ * this build does not have) resolves to the default rather than propagating a stale value.
+ * Unreadable storage is a default, never an exception — same fail-safe shape as the coach flag.
+ * @param {{getItem:function(string):?string}} [storage]
+ * @returns {{jpeg:string, webp:string}}
+ */
+export function readExportSettings(storage) {
+  const defaults = { jpeg: DEFAULT_EXPORT_LEVEL, webp: DEFAULT_EXPORT_LEVEL };
+  let raw = null;
+  try {
+    raw = storage?.getItem(EXPORT_SETTINGS_KEY) ?? null;
+  } catch {
+    return defaults;
+  }
+  if (!raw) return defaults;
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return defaults;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return defaults;
+  const out = { ...defaults };
+  for (const format of Object.keys(EXPORT_LEVELS)) {
+    const name = parsed[format];
+    if (typeof name === 'string' && Object.prototype.hasOwnProperty.call(EXPORT_LEVELS[format], name)) {
+      out[format] = name;
+    }
+  }
+  return out;
+}
+
+/**
+ * Persist the levels. A storage that throws (private mode, blocked site data) must not break the
+ * export path, so this never propagates.
+ * @param {{setItem:function(string,string):void}} [storage]
+ * @param {{jpeg:string, webp:string}} settings
+ */
+export function writeExportSettings(storage, settings) {
+  try {
+    storage?.setItem(EXPORT_SETTINGS_KEY, JSON.stringify({
+      jpeg: settings?.jpeg ?? DEFAULT_EXPORT_LEVEL,
+      webp: settings?.webp ?? DEFAULT_EXPORT_LEVEL,
+    }));
+  } catch {
+    /* an unwritable preference is a preference at its default */
+  }
+}
+
 /** True when a UA string identifies Safari on iOS or macOS. @param {string} ua */
 function isSafariUA(ua) {
   return typeof ua === 'string' && ua.includes('Safari') && !ua.includes('Chrome') && !ua.includes('Chromium');
@@ -203,17 +322,18 @@ export function degradedStickerCount(state, bitmaps, customBitmaps, fallback) {
  * @param {object} state
  * @param {Map<string, ImageBitmap>} bitmaps
  * @param {Map<string, ImageBitmap>} [customBitmaps]
- * @param {string} [mime] 'image/png' (default) or 'image/jpeg'
+ * @param {string} [mime] 'image/png' (default), 'image/jpeg' or 'image/webp' — a browser with no
+ *   encoder for the requested type answers with PNG, which `format` reports
  * @param {Map<string, HTMLImageElement>} [fallback] img fallbacks by src
- * @param {number} [quality] JPEG quality (default 0.92)
- * @returns {Promise<{blob: Blob, filename: string, degraded: number, compositeSize: object}>}
+ * @param {number} [quality] lossy quality (ignored for PNG; see EXPORT_LEVELS)
+ * @returns {Promise<{blob: Blob, filename: string, degraded: number, compositeSize: object,
+ *   format: {mime: string, ext: string, fellBack: boolean}}>}
  */
 export async function exportImage(state, bitmaps, customBitmaps = new Map(), mime = 'image/png', fallback, quality = 0.92) {
   const image = state.image;
   if (!image) throw new Error('No image loaded');
   const { canvas, compositeSize } = compositeCanvas(state, bitmaps, customBitmaps, fallback);
   const degraded = degradedStickerCount(state, bitmaps, customBitmaps, fallback);
-  const ext = mime === 'image/jpeg' ? 'jpg' : 'png';
   const base = (image.name ?? 'photo')
     .replace(/\.[^.]+$/, '')
     .replace(/[^\w\-]+/g, '_')
@@ -233,7 +353,19 @@ export async function exportImage(state, bitmaps, customBitmaps = new Map(), mim
       resolve(new Blob([arr], { type: mime }));
     }
   });
-  return { blob, filename: `${base}_stickerface.${ext}`, degraded, compositeSize };
+  // The name and the reported format follow what came BACK. A browser without an encoder for the
+  // requested type answers with PNG and says so — in `blob.type` and nowhere else — so trusting the
+  // request here is how a `.webp` file ends up holding PNG bytes.
+  const format = resolveExportFormat(mime, blob.type);
+  return {
+    blob,
+    filename: exportFilename(base, format.ext),
+    degraded,
+    compositeSize,
+    /** What was actually encoded: {mime, ext, fellBack}. `fellBack` true means the browser could
+     *  not produce the requested type and produced PNG instead. */
+    format,
+  };
 }
 
 /** Trigger a browser download for a Blob. */

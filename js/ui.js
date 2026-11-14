@@ -9,7 +9,7 @@ import {
   decodeCustomBitmap,
   paint,
 } from './render.js';
-import { exportImage, downloadBlob, cappedExportNote } from './export.js';
+import { exportImage, downloadBlob, cappedExportNote, levelValue, readExportSettings, writeExportSettings } from './export.js';
 import {
   px,
   norm,
@@ -37,6 +37,8 @@ const PAD_HOLD_DELAY_MS = 300;   // before a held button repeats
 const PAD_HOLD_REPEAT_MS = 120;
 const PAD_SIZE_DOWN = 0.9;
 const PAD_SIZE_UP = 1.1;
+// How long "Start over" stays armed after its first press, before disarming itself.
+const RESET_ARM_MS = 6000;
 
 // The stage hint is the instruction painted on the photo, and there are three of them:
 // the two gestures need the device's own verb (a phone told to "click" learns the wrong
@@ -129,8 +131,10 @@ class CanvasApp {
     this._bindKeys();
     this._bindToolbar();
     this._bindPad();
+    this._bindStartOver();
     this._bindCoach();
     this._bindInputs();
+    this._loadExportSettings();
     this.store.subscribe((event) => this.onStateChange(event));
     this.init();
   }
@@ -176,8 +180,12 @@ class CanvasApp {
       redo: $('#btn-redo'),
       exportPng: $('#btn-export-png'),
       exportJpeg: $('#btn-export-jpeg'),
+      exportWebp: $('#btn-export-webp'),
+      levelJpeg: $('#export-level-jpeg'),
+      levelWebp: $('#export-level-webp'),
       exportStatus: $('#export-status'),
       applyNext: $('#btn-apply-next'),
+      startOver: $('#btn-start-over'),
       about: $('#btn-about'),
       aboutPanel: $('#about-panel'),
       strength: $('#strength'),
@@ -303,16 +311,29 @@ class CanvasApp {
     img.src = url;
   }
 
-  fitCanvas() {
-    if (!this.image) return;
-    // A new image resets the pan: view is per-photo, never carried across.
+  /**
+   * View and in-flight input back to their per-photo defaults. Shared by fitCanvas() (a new photo
+   * arrived) and resetSession() (no photo at all), so the two cannot disagree about what "fresh"
+   * means and a reset cannot forget one of these six.
+   */
+  _resetTransientInput() {
+    // View is per-photo, never carried across: pan and pinch-zoom live in CSS px, kept out of the
+    // store on purpose (see the constructor's note on `view`).
     this.view = { dx: 0, dy: 0, scale: 1 };
+    // A stale contact makes the next one-finger tap read as a second finger and silently kills
+    // tap-to-place, so the tracker is cleared AND its measurement mirror is written.
     this._pointers.clear();
     this.els.canvas.dataset.pointers = '0';
     this._pan = null;
     this._xform = null;
     this._tap = null;
     this._lastTap = null;
+  }
+
+  fitCanvas() {
+    if (!this.image) return;
+    // A new image resets the pan: view is per-photo, never carried across.
+    this._resetTransientInput();
     const W = this.image.naturalWidth;
     const H = this.image.naturalHeight;
     const scale = Math.min(1, PREVIEW_LONG_EDGE / Math.max(W, H));
@@ -546,6 +567,9 @@ class CanvasApp {
     // catalogue: a missing asset degrades to a placeholder, it never blocks.
     this.els.exportPng.disabled = !hasImage;
     this.els.exportJpeg.disabled = !hasImage;
+    this.els.exportWebp.disabled = !hasImage;
+    // "Start over" is about the loaded photo: with none, there is nothing to discard.
+    this.els.startOver.disabled = !hasImage;
   }
 
   _syncStrengthInputs() {
@@ -742,8 +766,9 @@ class CanvasApp {
     }
     this.els.undo.addEventListener('click', () => this.store.undo());
     this.els.redo.addEventListener('click', () => this.store.redo());
-    this.els.exportPng.addEventListener('click', () => this.doExport('image/png'));
-    this.els.exportJpeg.addEventListener('click', () => this.doExport('image/jpeg'));
+    this.els.exportPng.addEventListener('click', () => this.doExport('png'));
+    this.els.exportJpeg.addEventListener('click', () => this.doExport('jpeg'));
+    this.els.exportWebp.addEventListener('click', () => this.doExport('webp'));
     this.els.applyNext.addEventListener('click', () => this.applyLayoutToNext());
     this.els.about.addEventListener('click', () => {
       const open = this.els.aboutPanel.hidden;
@@ -779,6 +804,18 @@ class CanvasApp {
       const file = e.dataTransfer?.files?.[0];
       this.loadImageFile(file);
     });
+
+    // The level picks are preferences, not session state: they survive a "Start over" and are
+    // written immediately, so the next export uses what the panel shows.
+    for (const [key, format] of [['levelJpeg', 'jpeg'], ['levelWebp', 'webp']]) {
+      const sel = this.els[key];
+      if (!sel) continue;
+      sel.addEventListener('change', () => {
+        this._exportLevels[format] = sel.value;
+        writeExportSettings(this._storage(), this._exportLevels);
+        this.setExportStatus(`${this._formatName(format)} level: ${this._exportLevelLabel(format)} — used by the next export.`);
+      });
+    }
 
     this.els.strength.addEventListener('input', () => {
       const st = this._selectedSticker();
@@ -1653,6 +1690,87 @@ class CanvasApp {
   }
 
   /**
+   * "Start over", in two presses. The first arms and changes NOTHING — one tap that discarded the
+   * photo and every sticker would be data loss on a touch screen, and this app already relabels
+   * rather than acting blind (the update bar). The arm disarms on its own, and on blur.
+   */
+  _bindStartOver() {
+    const btn = this.els.startOver;
+    btn.addEventListener('click', () => {
+      if (!this._resetArmed) {
+        this._resetArmed = true;
+        btn.textContent = 'Discard? press again';
+        btn.classList.add('armed');
+        clearTimeout(this._resetTimer);
+        this._resetTimer = setTimeout(() => this._disarmStartOver(), RESET_ARM_MS);
+        return;
+      }
+      this._disarmStartOver();
+      this.resetSession();
+    });
+    btn.addEventListener('blur', () => this._disarmStartOver());
+  }
+
+  _disarmStartOver() {
+    clearTimeout(this._resetTimer);
+    this._resetTimer = null;
+    if (!this._resetArmed) return;
+    this._resetArmed = false;
+    this.els.startOver.textContent = 'Start over';
+    this.els.startOver.classList.remove('armed');
+  }
+
+  /**
+   * Back to the state a fresh page has: no photo, no stickers, empty stage.
+   *
+   * Why it exists: in a browser a refresh IS this reset (the photo and the stickers live in memory
+   * only), but an INSTALLED app has no browser chrome at all — and the empty stage is the only
+   * place "choose a photo" lives, so without this the loaded photo is a one-way door.
+   *
+   * Refuses while a gesture is live: the canvas under a captured contact must not be torn out from
+   * underneath it. Same rule _syncChrome holds to for the handles.
+   *
+   * `bitmaps` and `fallback` are deliberately KEPT — decoded Twemoji artwork and its <img> safety
+   * net, not session state. `customBitmaps` IS cleared; those are the user's own images.
+   *
+   * @returns {boolean} true when the reset happened
+   */
+  resetSession() {
+    if (this._pointers.size > 0 || this.drag || this._pan || this._xform) {
+      this.setExportStatus('Finish the current gesture first.');
+      return false;
+    }
+    // The silent one: a carried layout would be applied to the NEXT photo, so leaving it set would
+    // make the reset look complete and still corrupt the next thing the user does.
+    this.pendingLayout = null;
+    this.image = null;
+    this.customBitmaps.clear();
+    this._resetTransientInput();
+    this._chromeSmall = null;
+    this._activeHandlePointerId = null;
+    this._layerRows = [];
+    this._layerCount = 0;
+    this._padStep = 1;
+    this.lastPickedSrc = EMOJI[0]?.path ?? '';
+    // Clears the stickers, the selection, and the undo history, and emits.
+    this.store.setImage(null, { resetStickers: true });
+    const canvas = this.els.canvas;
+    this.ctx.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.style.width = '';
+    canvas.style.height = '';
+    canvas.style.aspectRatio = '';
+    this.els.empty.hidden = false;
+    this.els.wrap.hidden = true;
+    this.els.hint.hidden = true;
+    this.els.padStep1.setAttribute('aria-pressed', 'true');
+    this.els.padStep10.setAttribute('aria-pressed', 'false');
+    this.setExportStatus('');
+    this._positionSelectionBox();   // no sticker and no image: hides the frame AND the pad
+    this._disarmStartOver();
+    return true;
+  }
+
+  /**
    * The ONE place the chrome's visibility reaches the DOM: every handle's `hidden`,
    * the frame's own class, the stage hint and the move mark (via the class).
    *
@@ -1713,25 +1831,78 @@ class CanvasApp {
     try { localStorage.setItem(COACH_KEY, '1'); } catch { /* see _coachSeen */ }
   }
 
-  /* ---------- export + batch ---------- */
+  /* ---------- export: formats, levels, and the batch flow ---------- */
 
-  async doExport(mime) {
+  /** localStorage, or null where reading it throws (private mode, blocked site data). The
+   *  preference helpers fail silent either way; this is the one place that touches the API. */
+  _storage() {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Format NAME -> mime. The app's own names ('png' | 'jpeg' | 'webp') are what the level table and
+   *  the stored settings are keyed by, so the mime is derived here and nowhere else. */
+  _mimeFor(format) {
+    if (format === 'jpeg') return 'image/jpeg';
+    if (format === 'webp') return 'image/webp';
+    return 'image/png';
+  }
+
+  /** The label a person reads. */
+  _formatName(format) {
+    return format === 'jpeg' ? 'JPEG' : format === 'webp' ? 'WebP' : 'PNG';
+  }
+
+  /** The chosen level's own word, from the select (the markup owns the wording), else the stored
+   *  name — and '' for a format that has no level, which is how PNG stays out of the status line. */
+  _exportLevelLabel(format) {
+    const sel = format === 'jpeg' ? this.els.levelJpeg : format === 'webp' ? this.els.levelWebp : null;
+    const chosen = sel?.selectedOptions?.[0]?.textContent;
+    return (chosen && chosen.trim()) || this._exportLevels[format] || '';
+  }
+
+  /** Stored levels onto the selects, once, before the first export. */
+  _loadExportSettings() {
+    this._exportLevels = readExportSettings(this._storage());
+    for (const [key, format] of [['levelJpeg', 'jpeg'], ['levelWebp', 'webp']]) {
+      const sel = this.els[key];
+      if (sel && this._exportLevels[format]) sel.value = this._exportLevels[format];
+    }
+  }
+
+  async doExport(format) {
     if (!this.image) return;
+    // PNG has no level at all: levelValue() returns undefined and the status line omits it, rather
+    // than showing a quality number the encoder ignores.
+    const level = levelValue(format, this._exportLevels[format]);
     this.setExportStatus('Exporting at full resolution…');
     try {
       // A partial asset failure must never disable the app: export runs
       // whenever an image is loaded; undecodable stickers draw as a block.
-      const { blob, filename, degraded, compositeSize } = await exportImage(this.store.state, this.bitmaps, this.customBitmaps, mime, this.fallback);
+      const { blob, filename, degraded, compositeSize, format: actual } = await exportImage(
+        this.store.state, this.bitmaps, this.customBitmaps, this._mimeFor(format), this.fallback, level,
+      );
       downloadBlob(blob, filename);
       // Loud, never silent: when the photo exceeds the canvas cap the
       // export is lower resolution than requested — say exactly what
       // was exported and what was asked for, next to the saved line.
       // (export.js keeps this text in one place: cappedExportNote().)
       const capNote = cappedExportNote(compositeSize);
+      // A browser with no encoder for the requested type answers with PNG and says NOTHING about it
+      // (the spec requires the fallback, not a warning), so this line is the only place the user can
+      // find out that a "WebP export" on their browser was really a PNG.
+      const fallbackNote = actual.fellBack
+        ? ` This browser cannot encode ${this._formatName(format)} — saved as ${this._formatName(actual.ext === 'jpg' ? 'jpeg' : actual.ext)} instead.`
+        : '';
+      const levelNote = level === undefined ? '' : `, ${this._exportLevelLabel(format)}`;
       this.setExportStatus(
         (degraded
-          ? `Saved ${filename} — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no drawable asset and were exported as a shaded block.`
-          : `Saved ${filename} — metadata (EXIF/GPS) removed.`)
+          ? `Saved ${filename} (${this._formatName(format)}${levelNote}) — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no drawable asset and were exported as a shaded block.`
+          : `Saved ${filename} (${this._formatName(format)}${levelNote}) — metadata (EXIF/GPS) removed.`)
+        + fallbackNote
         + (capNote ? ` ${capNote}` : ''),
       );
     } catch (err) {

@@ -56,6 +56,13 @@ v1 manual placement (images only — video is not supported):
   handles step aside, because their 32 px hit areas would otherwise cover the whole
   sticker — the body drag and the pad's arrows take over, and the handles come back
   when it grows
+- **Export as PNG, JPEG or WebP** at full resolution, with a **compression level per lossy
+  format** (Smaller / Balanced / Better / Maximum) that is remembered between visits. PNG is
+  lossless, so it has no level and says so rather than showing a control that does nothing. A
+  browser with no WebP encoder (every Safari so far) saves a PNG **and tells you** — no `.webp`
+  file containing PNG bytes
+- **"Start over"** — back to the empty stage to pick another photo, with the photo, the stickers
+  and the undo history cleared. Two presses, because one press would discard your work
 - **A first-run coach mark**, once per browser: the first photo explains that one
   pointer works the stickers and two move or zoom the photo, and that a sticker's
   corner resizes it while the dot above rotates it. The wording follows the device — a

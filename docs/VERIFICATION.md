@@ -47,6 +47,8 @@ probe must never read as success).
 | `install-probe.js` — the app is installable: the manifest is linked and parses, it carries the members the install surfaces read, every declared icon downloads and DECODES at the size it claims, the apple-touch-icon is 180×180, and all three theme-colour declarations match the colour the app paints | 7 (6 page-side + 1 from the harness) | green (2026-11-14) |
 | `offline-probe.js` — with the origin server stopped: the worker is genuinely offline (asserted on the worker, not just the page), it serves the shell from its own cache, all 76 emoji are precached, the stale `sf-v0` is gone, a seeded neighbour's cache is untouched, a first install offers no update bar, a sticker is placed and exported, and every request stayed same-origin | 12 (11 page-side + 1 from the harness) | green (2026-11-14) |
 | `update-probe.js` — the update TRANSITION, the one gate that spans two navigations: a worker that WAITS behind the controller (the same script under a URL this run never used), the bar offered by the app's own load path with its button owning its centre, one real CDP click, and then — read in the document the app's own reload produces — a navigation that is a `reload`, a controller that is a DIFFERENT worker than the one before the click, and a bar that is gone | 4 | green (2026-11-15) |
+| `export-format-probe.js` — the three export formats and the per-format level, read as BYTES: the WebP button exists, one level select per lossy format and none for PNG (which says why), a WebP export really encodes WebP and names a `.webp` file, **a lower level produces a strictly smaller file** (the criterion the plan's stop condition hangs on), the choice is persisted, and the two long-standing buttons still export their own formats. The photo is synthesised in-page (a gradient with noise) and the Blob is captured by wrapping `URL.createObjectURL` — the app's own download path | 7 | green (2026-11-15) — mutation-proved: handing the encoder a hardcoded 0.92 leaves the status naming "Smaller"/"Maximum" while both exports come back 449,996 B, and the gate goes **6/7** |
+| `reset-probe.js` — "Start over" and the COMPLETENESS of a reset: the control exists and is gated on a loaded photo, the first press only arms (label changes, nothing is discarded), a second press returns the app to a **virgin-state signature** captured before any photo was loaded (20 fields, diffed by name — `virginDiff`), a live contact makes the reset refuse and leave the photo alone, and a photo loaded afterwards starts clean with no inherited layout | 7 | green (2026-11-15) — mutation-proved: dropping `pendingLayout` from the reset is RED with `virginDiff: ["pendingLayout"]` |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 | `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
@@ -428,6 +430,31 @@ rather than letting "no change" read as success.
   `controllerchange` once its reload flag is set by the click, so a `clients.claim()` still in
   flight from the probe's own fresh install produces a reload with the old worker in charge.
   Settle such in-flight state (wait for control, then a beat) before the click.
+- **PNG ignores `toBlob`'s quality argument entirely.** Measured byte-identical output
+  (12,773,958 bytes) at 0.5, 0.8, 0.92 and 1.0 on a 6 MP canvas — the hint applies to LOSSY
+  formats only. So a PNG "compression level" cannot exist natively, and a control offering one
+  would be wired to nothing. The app says so in a sentence instead of showing a dead control.
+- **A browser can return a DIFFERENT format than the one asked for, silently.** The HTML spec
+  requires `image/png` when the requested type is unsupported — no throw, no rejection, no
+  warning — and Safari has no canvas WebP encoder at any version (through iOS 26 / Safari 27).
+  The only signal is the returned `blob.type`, so any code that names a file from the mime it
+  REQUESTED can ship a `.webp` holding PNG bytes. Derive the extension from what came back, and
+  test the fallback by injecting the type (a unit test needs no Safari). Verified here: this
+  browser does encode WebP, so the gate asserts the happy path and the unit test owns the rest.
+- **`quality 1.0` is a codec switch, not a maximum.** WebP at exactly 1.0 becomes TRUE LOSSLESS
+  in Chrome 151+/Firefox 153+ (measured 2,407 KB → 7,343 KB from 0.92 to 1.0), and JPEG at 1.0 is
+  still lossy while tripling (2,396 KB → 6,119 KB). The level table tops out at 0.95 for that
+  reason; exposing 1.0 as "best" would be a size trap.
+- **The harness releases every pointer before the next step.** `run.py`'s click/move/hold all
+  press AND release, so a live gesture cannot span steps from the desktop path (touch steps do
+  hold, but they need `E2E_MOBILE=1`). A guard that fires mid-gesture is therefore exercised by
+  seeding the app's own `PointerTracker` — the exact predicate the guard reads — and saying so in
+  the probe's header, rather than pretending a second finger was involved.
+- **An async read raced the encode: wait for the artifact, not a duration.** The export gate's
+  first version slept a fixed 400 ms after the click and lost the PNG blob (still
+  "Exporting…"), which failed a criterion for a reason that had nothing to do with the app. The
+  reader now waits for the Blob the app hands to `createObjectURL`, cleared by the CLICK step —
+  clearing it in the reader throws away a capture that already arrived during the click's delay.
 - **The probe path must be RELATIVE.** The app is at the origin root locally but under
   `/stickerface/` on Pages; a root-absolute `/tests/e2e/probe.js` resolves to the
   origin root, returns a 404 **HTML** page, and the eval dies with

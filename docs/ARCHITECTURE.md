@@ -108,6 +108,63 @@ Export is gated on "an image is loaded", never on the whole asset catalogue bein
 decoded. A missing emoji bitmap degrades to a drawn `<img>` or placeholder and is
 reported in `#export-status`; it must never block the export.
 
+### Formats and compression levels
+
+Three formats, one button each (`btn-export-png` / `-jpeg` / `-webp`): the two original ids are
+clicked by four other gates, and a direct affordance per format is this app's idiom (M13 deleted
+a mode row for the same reason). The level is a `<select>` per **lossy** format with four NAMED
+levels rather than a raw 0–1 number, for two measured reasons: the same value means different
+sizes in JPEG and WebP (886 KB vs 524 KB at 0.5 on the same canvas, so one shared number would
+mislead), and `1.0` is not "maximum quality" but a different codec mode — WebP switches to true
+lossless there (2.4 MB → 7.3 MB from 0.92 to 1.0). `EXPORT_LEVELS` therefore tops out at 0.95,
+and `better` is 0.92 — the value this module hardcoded before levels existed — so the default
+JPEG export is byte-for-byte what it always was.
+
+**PNG has no level, and the UI says so instead of showing a dead control.** `toBlob`'s quality
+argument applies to lossy formats only: measured byte-identical output (12,773,958 bytes) at
+0.5, 0.8, 0.92 and 1.0. A control that changed nothing would be the update-bar failure mode in
+another costume.
+
+**The extension follows what the browser PRODUCED, never what it was asked for.**
+`resolveExportFormat(requested, actual)` is pure, and it exists because the mismatch is SILENT:
+the HTML spec requires a browser that cannot encode the requested type to export `image/png`
+instead — no error, no rejection. Safari has no canvas WebP encoder at any version, so asking
+for WebP there returns valid PNG bytes, and a hand-built `.webp` name ships a mislabel that
+opens fine in the browser that wrote it and breaks anything downstream that trusts the
+extension. The returned `blob.type` is the only signal there is, which is why it is the input to
+the decision (and why a stub `blob.type` in a unit test stands in for Safari).
+`#export-status` names the format and level actually used, and says "This browser cannot encode
+WebP — saved as PNG instead" when the fallback happens.
+
+## Start over: the reset contract
+
+In a browser a refresh IS a reset — the photo and the stickers live in memory only — but an
+INSTALLED app has no browser chrome at all, and once a photo is loaded the empty stage (the only
+place "choose a photo" lives) is unreachable: the remaining paths are drag-and-drop and "Apply
+to next photo", which deliberately keeps the stickers. `resetSession()` closes that gap.
+
+It is a SOFT reset, not `location.reload()`: instant, and it keeps preferences. The export
+levels are preferences; the decoded emoji artwork (`bitmaps`, `fallback`) is an asset cache and
+is deliberately kept — only `customBitmaps` (the user's own images) is cleared. Everything
+transient goes through `_resetTransientInput()`, the same helper `fitCanvas()` uses when a new
+photo arrives, so the two cannot disagree about what "fresh" means. `pendingLayout` is cleared
+explicitly: it is the one field whose omission would look like a complete reset and still apply
+an old sticker layout to the NEXT photo.
+
+**Two presses.** The first arms (`Discard? press again`, `.armed`), the second discards. A
+single tap that discarded the photo and every sticker would be data loss on a touch screen, and
+this app already relabels rather than acting blind (the update bar). The arm disarms on its own
+after `RESET_ARM_MS` and on blur.
+
+**It refuses while a gesture is live** (`_pointers.size > 0 || drag || _pan || _xform`): the
+canvas under a captured contact must not be torn out from underneath it — the same rule
+`_syncChrome` holds to for the handles.
+
+`tests/e2e/reset-probe.js` gates COMPLETENESS rather than the button: it captures the app's
+virgin-state signature before any photo is loaded, does as much to the app as it can, presses
+Start over twice, and diffs the signature field by field. A forgotten field fails the gate and
+names itself (`virginDiff: ["pendingLayout"]`).
+
 ## Layer list
 
 The Layers panel is a **descending** render of the store's ascending-z array:

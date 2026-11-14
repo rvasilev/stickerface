@@ -74,6 +74,9 @@ h2 { font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color
 }
 .toolbar button:hover:not(:disabled), .file-btn:hover { border-color: var(--accent); }
 .toolbar button:disabled { opacity: 0.45; cursor: not-allowed; }
+/* "Start over", armed by its first press: the second one discards. The colour is the whole
+   warning — the label already says what the press will do, so no dialog is needed. */
+.toolbar button.armed { border-color: var(--danger); color: var(--danger); }
 .tool[aria-pressed='true'] {
   background: var(--accent);
   border-color: var(--accent);
@@ -384,6 +387,23 @@ kbd {
 
 .panel input[type='range'] { width: 100%; accent-color: var(--accent); }
 
+/* Export quality: a labelled select per lossy format. 32px minimum like every other control in the
+   panel (the polish gate measures them), and the native arrow is kept — appearance:none would
+   remove the only sign that this is a picker. */
+.export-level { display: flex; flex-direction: column; gap: 0.25rem; }
+.export-level label { color: var(--text-dim); font-size: 0.85rem; }
+.panel select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-height: 32px;
+  padding: 0.35rem 0.55rem;
+  font: inherit;
+  cursor: pointer;
+}
+.panel select:hover { border-color: var(--accent); }
+
 .layers, .layer-row { list-style: none; margin: 0; padding: 0; }
 .layer-row {
   display: flex;
@@ -445,7 +465,7 @@ details > summary::-webkit-details-marker { display: none; }
 details > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Focus */
-button:focus-visible, a:focus-visible, input:focus-visible, .file-btn:focus-within {
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, .file-btn:focus-within {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }

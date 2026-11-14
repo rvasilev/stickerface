@@ -54,13 +54,24 @@
 
       <div class="group" role="group" aria-label="Export">
         <button type="button" id="btn-export-png" disabled title="Export as PNG at full resolution">Export PNG</button>
-        <button type="button" id="btn-export-jpeg" disabled title="Export as JPEG at full resolution (quality 0.92)">Export JPEG</button>
+        <button type="button" id="btn-export-jpeg" disabled title="Export as JPEG at full resolution">Export JPEG</button>
+        <!-- WebP's own button, not a format dropdown: the two existing ids are clicked by four
+             other gates, and the app's idiom is a direct affordance per format. A browser with no
+             canvas WebP encoder (every Safari to date) answers with PNG — js/export.js notices and
+             the status line says so rather than shipping a .webp file holding PNG bytes. -->
+        <button type="button" id="btn-export-webp" disabled title="Export as WebP at full resolution (a browser without a WebP encoder saves PNG instead and says so)">Export WebP</button>
         <p class="note">Export re-encodes through a canvas — EXIF and GPS metadata are removed.</p>
         <p class="note" id="export-status" role="status" aria-live="polite"></p>
       </div>
 
       <div class="group" role="group" aria-label="Layout">
         <button type="button" id="btn-apply-next" disabled title="Keep this sticker layout and open the next photo">Apply to next photo</button>
+        <!-- In a browser a refresh IS the reset; an installed app has no browser chrome at all, so
+             once a photo is loaded the empty stage (the only place "choose a photo" lives) is
+             otherwise unreachable. Two presses: the first arms and changes nothing (js/ui.js
+             _bindStartOver), because one tap that discarded the photo and every sticker would be
+             data loss on a touch screen. -->
+        <button type="button" id="btn-start-over" disabled title="Discard this photo and its stickers, and go back to the start">Start over</button>
       </div>
 
       <div class="group">
@@ -174,6 +185,36 @@
             <p class="note" id="layer-empty">No stickers yet — click the canvas with a tool active.</p>
           </details>
         </h2>
+      </section>
+
+      <!-- Export quality. One level per LOSSY format, because the two scales are not comparable —
+           the same number gives different sizes in each, so one shared slider would mislead. PNG
+           gets a sentence rather than a control: canvas.toBlob ignores the quality argument for PNG
+           entirely (measured byte-identical output across the whole range), so a PNG "level" would
+           be a control wired to nothing. Collapsed by default: the panel must not be a wall. -->
+      <section aria-labelledby="export-quality-heading">
+        <details>
+          <summary><h2 id="export-quality-heading">Export quality</h2></summary>
+          <div class="export-level">
+            <label for="export-level-jpeg">JPEG</label>
+            <select id="export-level-jpeg">
+              <option value="smaller">Smaller</option>
+              <option value="balanced">Balanced</option>
+              <option value="better" selected>Better</option>
+              <option value="maximum">Maximum</option>
+            </select>
+          </div>
+          <div class="export-level">
+            <label for="export-level-webp">WebP</label>
+            <select id="export-level-webp">
+              <option value="smaller">Smaller</option>
+              <option value="balanced">Balanced</option>
+              <option value="better" selected>Better</option>
+              <option value="maximum">Maximum</option>
+            </select>
+          </div>
+          <p class="note" id="export-level-note">PNG is lossless — it has no compression level. Levels apply to JPEG and WebP, and the same level gives different sizes in each.</p>
+        </details>
       </section>
 
       <section id="about-panel" aria-labelledby="about-heading" hidden>

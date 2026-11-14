@@ -189,6 +189,25 @@ jobs:
           E2E_PROBE: tests/e2e/update-probe.js
         run: bash scripts/e2e.sh
 
+      # The bytes, not the label: this gate wraps URL.createObjectURL to capture the Blob the app
+      # actually hands the browser, so "a lower level makes a smaller file" is measured rather
+      # than asserted from the status text. The Safari half of the same decision cannot run here
+      # (this browser HAS a WebP encoder) — it is a pure function with the produced type injected,
+      # covered by tests/export-format.test.js.
+      - name: Gate — export formats and the compression levels
+        env:
+          E2E_PROBE: tests/e2e/export-format-probe.js
+        run: bash scripts/e2e.sh
+
+      # A reset's failure mode is the field it FORGETS, and the dangerous one is invisible: a
+      # stale pendingLayout is applied to the next photo. So this gate captures the app's virgin
+      # signature before any photo, mutates hard, resets, and diffs by name — a forgotten field
+      # fails and says which.
+      - name: Gate — "Start over" returns the app to its virgin state
+        env:
+          E2E_PROBE: tests/e2e/reset-probe.js
+        run: bash scripts/e2e.sh
+
       - name: Gate — two-finger sticker transform (pinch, twist, drag) inside the frame
         env:
           E2E_MOBILE: "1"
