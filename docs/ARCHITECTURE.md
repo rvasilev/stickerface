@@ -265,24 +265,10 @@ reloads only on `controllerchange` after that click, because posting `SKIP_WAITI
 reloading in the same tick sometimes reloads into the *old* worker, which looks exactly like
 the update not working.
 
-**Verifying offline takes two probes and a cleared profile.** A reload is the only thing that
-proves a navigation is served from cache, and a reload destroys the first probe's state — so
-the criteria come from a second probe, whose source is captured while still online and
-evaluated from memory (a cache-busted fetch of a probe cannot work offline by design). The
-harness also clears every cache and unregisters every worker first, then seeds a stale `sf-v0`
-and a neighbour *before* the reload that installs the worker: `activate()` runs once, so that
-ordering is the only way the cleanup rule is observable, and without the clear the persistent
-browser profile lets the previous run's cache mask a change to what gets precached. Both facts
-were established by mutation, not assumption — see `docs/VERIFICATION.md`.
-
-**An offline gate has to defeat every cache in its own chain, including its own.** Three layers
-each made the first version pass while measuring nothing: a runtime `cache.put` in the worker
-(the harness's own online reload re-cached the file whose absence was being tested — removed, so
-what works offline is exactly the precache list and the list is therefore falsifiable), Chrome's
-HTTP/memory cache, and the decisive one — **CDP network emulation is per-target**, so emulating
-on the page left the *worker* online and it proxied everything to the live server, which is why
-the app "booted offline" no matter what the precache contained. The harness now stops the origin
-server, and the probe asserts the worker's own connectivity before trusting anything it reports.
+**Verifying it** is documented in `docs/VERIFICATION.md`: an offline gate has to defeat every
+cache in its own chain — the worker's, the browser's, and a runtime cache the worker itself
+wrote — and the harness stops the origin server rather than emulating one target, because CDP
+network emulation is per-target and a service worker is its own target.
 
 Two invariants are asserted rather than trusted. `tests/manifest.test.js` reads each icon's
 real PNG header and compares it to the declared `sizes`, so a `sizes` that lies about the

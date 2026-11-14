@@ -675,9 +675,18 @@ async def main(probe_path, url_match="8123"):
                 # the server is the one condition nothing can route around. The worker's own
                 # connectivity is asserted in the probe (workerIsOffline), so this can never
                 # silently regress into the same trap.
-                port = urllib.parse.urlsplit(target["url"]).port
+                # Local origins only. This stops the process serving the page — the harness's own
+                # server on localhost. Against a deployed URL the same call would aim at port 443
+                # on this machine, so refuse loudly rather than guess: the offline phase cannot
+                # mean anything against an origin the harness does not own.
+                parsed = urllib.parse.urlsplit(target["url"])
+                if parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+                    raise RuntimeError(
+                        "the offline phase stops the origin server, so it needs a local origin "
+                        f"(got {parsed.hostname!r}) — rerun without E2E_PROBE_OFFLINE"
+                    )
                 killer = await asyncio.create_subprocess_exec(
-                    "fuser", "-k", "-n", "tcp", str(port),
+                    "fuser", "-k", "-n", "tcp", str(parsed.port),
                     stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
                 )
                 await killer.wait()

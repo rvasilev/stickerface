@@ -20,10 +20,8 @@
     <p class="tagline">Hide faces in a photo with an emoji, blur or mosaic patch — entirely offline.</p>
   </header>
 
-  <!-- A new version is ready. Shown by js/pwa.js only when an UPDATE is waiting (never on a
-       first install), and it never reloads on its own: the editor is in-memory only, so an
-       automatic reload would throw away work the user has not exported. The reload is the
-       click. Follows the coach mark's [hidden] discipline — see the .update-bar rule. -->
+  <!-- Shown only when an update is waiting, never on a first install, and it does not reload on
+       its own: the photo and stickers live in memory, so a reload would lose unexported work. -->
   <aside class="update-bar" id="update-bar" role="status" hidden>
     <p class="update-text">A new version is ready.</p>
     <button type="button" id="update-reload" class="update-btn">Reload</button>
@@ -216,9 +214,7 @@
   </footer>
 
   <script type="module" src="js/ui.js"></script>
-  <!-- After ui.js: registration must never delay the app booting. It also cannot be part of
-       ui.js — the worker's cleanup and the offline boot both depend on it running even if the
-       app's own module graph throws. -->
+  <!-- After ui.js, so registration can never delay the boot. -->
   <script src="js/pwa.js"></script>
 </body>
 </html>

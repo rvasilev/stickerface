@@ -1,19 +1,16 @@
-// Registers the service worker and surfaces an update.
+// Registers the service worker and offers an update.
 //
-// It deliberately does NOT reload by itself. The editor keeps the photo and the stickers in
-// memory only (there is no persistence yet), so an automatic update would throw away work the
-// user has not exported. The reload is the user's click, and it is the only safe place for it
-// until autosave exists. Same reason the worker does not skipWaiting() on install: a new
-// version waits until it is asked for, rather than taking over under a running page.
+// The worker never reloads on its own: the photo and stickers live in memory, so an automatic
+// reload would destroy unexported work. The bar asks, and the reload happens on
+// `controllerchange` after the click — reloading in the same tick as SKIP_WAITING can land
+// back under the old worker.
 const bar = document.getElementById('update-bar');
 const reloadBtn = document.getElementById('update-reload');
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   let reloading = false;
+  const offerUpdate = () => { if (bar) bar.hidden = false; };
 
-  // Reload only once the NEW worker actually controls the page. Posting SKIP_WAITING and
-  // calling location.reload() in the same tick would sometimes reload into the OLD worker
-  // still in charge, which looks exactly like the update not working.
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloading) location.reload();
   });
@@ -22,15 +19,15 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     try {
       const reg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
 
-      // "installled while something is already controlling this page" is an update, not a
-      // first install — only then is there a version to offer.
+      // A worker already waiting when this page loaded is an update too. `updatefound` alone
+      // misses it: that fires only for an install starting now.
+      if (reg.waiting && navigator.serviceWorker.controller) offerUpdate();
+
       reg.addEventListener('updatefound', () => {
         const sw = reg.installing;
         if (!sw) return;
         sw.addEventListener('statechange', () => {
-          if (sw.state === 'installed' && navigator.serviceWorker.controller && bar) {
-            bar.hidden = false;
-          }
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) offerUpdate();
         });
       });
 
@@ -41,8 +38,8 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
         });
       }
     } catch (err) {
-      // Offline on a first visit, or a browser with the API switched off: the app itself still
-      // works, it is simply not cached. This must never throw into the app's boot path.
+      // First visit with no network, or the API switched off: the app still works, it simply
+      // is not cached. This must never throw into the boot path.
       console.warn('service worker not registered:', err);
     }
   });

@@ -155,10 +155,10 @@ cache version, the bar appearing, the click reloading into the new worker — is
 that needs a second, different `sw.js` served mid-run, and the harness has one origin state per
 run. `updateBarHiddenByDefault` covers the first-install half (no bar appears) and
 `staleCacheCleaned` covers the cleanup half; the transition between them is untested. (2) The
-offline phase stops the origin server, so it is **local-only**: against a deployed URL the worker
-can always reach the origin, `workerIsOffline` fails, and that failure is correct — the harness
-cannot take the real server down, so it cannot prove offline for a remote origin. Live checks
-therefore cover installability and the cached state, not the offline boot.
+offline phase stops the origin server, so it is **local-only** — and it refuses a non-local
+origin outright rather than aiming `fuser` at a port on this machine: the install criteria still
+run, the phase reports the refusal, and the run exits non-zero. Live checks therefore cover
+installability and the cached state, not the offline boot.
 
 ### Real input, not synthetic events
 
