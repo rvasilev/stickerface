@@ -363,6 +363,46 @@ async def main(probe_path, url_match="8123"):
                         })
                         await asyncio.sleep(float(step.get("ms", 150)) / 1000)
                         continue
+                    if step.get("fns"):
+                        # `fns` resolves each touch point from the PAGE at
+                        # dispatch time, as the mouse steps already do. A touch
+                        # gesture aimed at an element an EARLIER gesture moved
+                        # needs this: a point captured at arm time lands where
+                        # the element used to be, and the gesture then silently
+                        # does something else — or nothing at all, which reads as
+                        # an app defect rather than a stale aim.
+                        resolved = []
+                        for fn_expr in step["fns"]:
+                            rr = await send("Runtime.evaluate", {
+                                "expression": fn_expr, "awaitPromise": True,
+                                "returnByValue": True, "timeout": 20000,
+                            })
+                            v = rr["result"]["result"].get("value")
+                            if not isinstance(v, list) or len(v) < 2:
+                                print(f"{kind}: fns returned {v!r}")
+                                resolved = []
+                                break
+                            resolved.append((float(v[0]), float(v[1])))
+                        if resolved:
+                            pts = resolved
+                    if kind == "touchAdd":
+                        # Adding a finger to a LIVE gesture. CDP's touchStart must
+                        # carry ONLY the new points: re-sending an already-active
+                        # point makes the whole event invalid and Chromium drops
+                        # it, so the second finger never registers — the app sees
+                        # one pointer, the gesture silently stays a one-finger
+                        # drag, and the probe blames the app for its own aim.
+                        base = len(active_ids)
+                        new_ids = ids_for(base + len(pts))[base:]
+                        await send("Input.dispatchTouchEvent", {
+                            "type": "touchStart",
+                            "touchPoints": [
+                                {"x": p[0], "y": p[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": pid}
+                                for pid, p in zip(new_ids, pts)
+                            ],
+                        })
+                        await asyncio.sleep(float(step.get("ms", 60)) / 1000)
+                        continue
                     touch_points = [
                         {"x": p[0], "y": p[1], "radiusX": 8, "radiusY": 8, "force": 1, "id": pid}
                         for pid, p in zip(ids_for(len(pts)), pts)

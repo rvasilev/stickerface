@@ -15,9 +15,11 @@ import {
   norm,
   stickerRect,
   hitTest,
+  inStickerBox,
   resizeRect,
   rotateTo,
   angleDelta,
+  clampStickerScale,
   snapAngle,
   nudge,
   clampViewScale,
@@ -74,6 +76,12 @@ export class CanvasApp {
     // focalStart, startDist} — the focal anchors are the CURRENT centroid
     // and CURRENT two-finger distance (rect-relative CSS px) at gesture start.
     this._pan = null;
+    // In-progress two-finger STICKER transform: {id, start, startDist,
+    // startAngle, startCentroid}. Every frame is derived from these start
+    // values, so per-event accumulation cannot drift. Mutually exclusive with
+    // _pan: the mode is decided once, when the second pointer lands, and never
+    // re-evaluated mid-gesture.
+    this._xform = null;
     // Last completed tap (touch double-tap delete needs 350ms/25px windowing
     // inside this router — a separate listener would race pan arbitration).
     this._lastTap = null;
@@ -261,6 +269,7 @@ export class CanvasApp {
     this._pointers.clear();
     this.els.canvas.dataset.pointers = '0';
     this._pan = null;
+    this._xform = null;
     this._tap = null;
     this._lastTap = null;
     this._lastUp = null;
@@ -913,14 +922,17 @@ export class CanvasApp {
   _endStickerGate(e) {
     this._unregisterPointer(e.pointerId);
     if (this._pointers.size === 1) {
-      // Dropping from 2 -> 1: end the pan and drop the centroid anchor so the
-      // remaining finger does not jump. It is NOT promoted to a sticker drag —
-      // the gesture began as a pan and stays one until all fingers lift.
+      // Dropping from 2 -> 1: end whichever two-finger gesture was running and
+      // drop the anchors so the remaining finger does not jump. It is NOT
+      // promoted to a sticker drag — the gesture began as a two-finger one and
+      // stays that until all fingers lift.
+      this._endStickerTransform();
       this._pan = null;
       delete this.els.canvas.dataset.panning;
       return;
     }
     if (this._pointers.size !== 0) return;
+    this._endStickerTransform();
     this._pan = null;
     delete this.els.canvas.dataset.panning;
     // Order matters: the tap path first (its add/remove belongs to THIS
@@ -967,6 +979,125 @@ export class CanvasApp {
     this._activeHandlePointerId = null;
     this._bindHandles();
     this._bindReleaseNet();
+  }
+
+  /**
+   * Two fingers whose centroid started INSIDE the selected sticker's box
+   * transform THAT sticker: pinch = scale, twist = rotate, centroid drag =
+   * move (Instagram-like). The mode is decided once, here, from the first two
+   * pointers, and is never re-evaluated mid-gesture.
+   *
+   * Returns false when there is nothing to transform, and the caller then pans
+   * the photo — so this can only ever ADD a mode, never swallow a pan.
+   *
+   * Called only when no sticker gesture is in flight: a second finger landing
+   * mid-drag cancels that drag and pans instead (see `_enterPanMode`), so a
+   * stray finger can never deform something the user did not aim at.
+   */
+  _tryEnterStickerTransform() {
+    const sel = this._selectedSticker();
+    if (!sel || !this.image) return false;
+    const c = this._centroidNatural();
+    if (!c) return false;
+    if (!inStickerBox(c, sel, this.image.naturalWidth, this.image.naturalHeight)) return false;
+
+    // The first finger's tap must not survive as a placement once the gesture
+    // becomes a transform.
+    if (this._tap) this._tap.cancelled = true;
+    this._lastTap = null;
+
+    // The press that opened this gesture is not a drag: it applied nothing, so
+    // there is nothing to cancel — it just stops claiming the pointer, which
+    // the transform now owns. (Cancelling would instead restore a snapshot the
+    // transform is about to re-take.) That press may have landed on a HANDLE,
+    // whose listeners and pointer ownership have to go with it.
+    if (this._cancelHandleDrag) {
+      this._cancelHandleDrag();
+      this._cancelHandleDrag = null;
+    }
+    if (this.drag) {
+      this.store.cancelDrag();
+      this.drag = null;
+      delete this.els.canvas.dataset.dragging;
+    }
+
+    const pts = this._pointers.values();
+    const a = pts[0];
+    const b = pts[1];
+    this._xform = {
+      id: sel.id,
+      // The sticker's geometry AT GESTURE START. Every frame is derived from
+      // this plus the current pointers: a ratio of ratios, never an
+      // accumulation, which is what keeps a long gesture from drifting.
+      start: { cx: sel.cx, cy: sel.cy, w: sel.w, h: sel.h, rot: sel.rot },
+      startDist: Math.hypot(a.x - b.x, a.y - b.y),
+      startAngle: Math.atan2(b.y - a.y, b.x - a.x),
+      startCentroid: c,
+    };
+    // One undo entry for the whole gesture: press to release is one command.
+    this.store.beginDrag(sel.id);
+    this.els.canvas.dataset.transforming = '1';
+    return true;
+  }
+
+  /** Drive the in-flight two-finger sticker transform from its start snapshot. */
+  _applyStickerTransform() {
+    const g = this._xform;
+    if (!g || !this.image) return;
+    const st = this.store.state.stickers.find((s) => s.id === g.id);
+    if (!st) return;
+    const pts = this._pointers.values();
+    if (pts.length < 2) return;
+    const W = this.image.naturalWidth;
+    const H = this.image.naturalHeight;
+    const [a, b] = pts;
+
+    // Scale is a RATIO of the same quantity, so the units cancel and the
+    // pointer space (client px) never has to be converted.
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    // Clamped on the SHORTER side, in natural px, so k stays > 0: a sticker can
+    // neither vanish nor invert, however far the fingers go.
+    const k = clampStickerScale(
+      g.startDist > 1 ? dist / g.startDist : 1,
+      Math.min(g.start.w * W, g.start.h * H),
+      Math.min(W, H),
+    );
+
+    // Rotate about the sticker's own centre, from the START angle: adding a
+    // delta to the start rotation is what stops the sticker walking away as
+    // you twist it (a projection about the gesture centroid does exactly that).
+    const rot = g.start.rot + angleDelta(g.startAngle, Math.atan2(b.y - a.y, b.x - a.x));
+
+    // Centre follows the centroid delta, in natural px, so a two-finger drag
+    // repositions as well as scales.
+    const c = this._centroidNatural();
+    const dxPx = c ? c.x - g.startCentroid.x : 0;
+    const dyPx = c ? c.y - g.startCentroid.y : 0;
+    this.store.move(g.id, {
+      w: Math.max(0, g.start.w * k),
+      h: Math.max(0, g.start.h * k),
+      cx: norm(g.start.cx * W + dxPx, W),
+      cy: norm(g.start.cy * H + dyPx, H),
+    });
+    this.store.rotate(g.id, rot);
+    this._draw();
+    this._positionSelectionBox();
+  }
+
+  /** End the transform gesture: one undo entry for the whole thing. */
+  _endStickerTransform() {
+    if (!this._xform) return;
+    this._xform = null;
+    delete this.els.canvas.dataset.transforming;
+    this.store.commitDrag();
+  }
+
+  /** The pointer centroid in natural px (the space sticker geometry lives in). */
+  _centroidNatural() {
+    const c = this._centroid();
+    if (!c) return null;
+    const p = this._cssToCanvasPx(c.x, c.y);
+    return { x: p.x / this.scale, y: p.y / this.scale };
   }
 
   /** Client-space point -> rect-relative CSS px: the space `focalZoomView` works
@@ -1058,7 +1189,15 @@ export class CanvasApp {
       }
 
       if (this._pointers.size >= 2) {
-        // Two fingers: pan mode. Never enters sticker mode below.
+        // Two fingers: the mode is decided ONCE, here. A centroid inside the
+        // SELECTED sticker's box transforms that sticker (M6); anything else
+        // pans the photo. A second finger that lands mid-DRAG always pans: the
+        // in-flight sticker gesture is cancelled first, so a stray finger can
+        // never deform something the user did not aim at. A press that has not
+        // moved anything is not a drag yet — two fingers landing together are
+        // the Instagram gesture, not a stray finger.
+        const freshPress = !this.drag || !this.drag.moved;
+        if (freshPress && this._tryEnterStickerTransform()) return;
         this._enterPanMode();
         return;
       }
@@ -1096,6 +1235,12 @@ export class CanvasApp {
         if (this._pan) this._applyPanMove();
         return;
       }
+      if (this._xform) {
+        // The mode was decided when the second pointer landed; a transform
+        // never becomes a pan mid-gesture.
+        this._applyStickerTransform();
+        return;
+      }
       if (this._pointers.size >= 2) {
         this._applyPanMove();
         return;
@@ -1109,6 +1254,11 @@ export class CanvasApp {
       if (this.drag.mode === 'move') {
         const dx = pt.x - this.drag.start.x;
         const dy = pt.y - this.drag.start.y;
+        // Did this press actually DRAG? A second finger landing decides the
+        // mode from this: mid-drag it cancels and pans, but two fingers that
+        // land together (the first has not moved anything yet) transform the
+        // sticker. Threshold in natural px, above sensor jitter.
+        if (Math.hypot(dx, dy) > 2) this.drag.moved = true;
         const cxp = px(this.drag.startCx, this.image.naturalWidth) + dx;
         const cyp = px(this.drag.startCy, this.image.naturalHeight) + dy;
         this.store.move(st.id, {
@@ -1134,11 +1284,18 @@ export class CanvasApp {
    * A tracked pointer that moves off the canvas (a handle captured it mid-pinch)
    * must still update the tracker: the pan derives its focal distance from it, so
    * a finger that leaves a handle would otherwise be invisible to the zoom.
+   *
+   * It also drives the transform, and that is not optional: a touch pointer is
+   * implicitly captured by the element under its press, so a two-finger pinch
+   * whose fingers land on the frame's HANDLES delivers every move to the handle,
+   * not the canvas. Without this the transform is entered and then receives no
+   * updates at all — the mode flag says "transforming" while nothing moves.
    */
   _bindWindowMove() {
     window.addEventListener('pointermove', (e) => {
       if (!this._pointers.has(e.pointerId)) return;
       this._registerPointer(e.pointerId, e.clientX, e.clientY);
+      if (this._xform) this._applyStickerTransform();
       if (this._pan) this._applyPanMove();
     });
   }
@@ -1194,6 +1351,14 @@ export class CanvasApp {
     if (!st || !this.image) return;
     this._registerPointer(e.pointerId, e.clientX, e.clientY);
     if (this._pointers.size >= 2) {
+      // Second finger landing on a HANDLE: the same decision as on the canvas.
+      // The handles sit on the frame's edge, so a two-finger pinch aimed at the
+      // sticker's interior can easily land on two of them — and because a handle
+      // press stops propagation, the canvas branch never sees it. A press that
+      // has moved nothing is not a gesture yet: it may still become a transform.
+      if (!this.drag || !this.drag.moved) {
+        if (this._tryEnterStickerTransform()) return;
+      }
       this._enterPanMode();
       return;
     }
@@ -1229,6 +1394,9 @@ export class CanvasApp {
       // Key the handle off the DRAG, not ev.target: under touch capture,
       // ev.target can be an inner element or the canvas.
       const pt = this._canvasPoint(ev);
+      // This drag has now moved something, so it is a real gesture: a second
+      // finger landing from here on cancels it and pans (never transforms).
+      this.drag.moved = true;
       if (this.drag.mode === 'rotate') {
         this._rotateFromDrag(st, pt, Boolean(ev.shiftKey));
       } else {

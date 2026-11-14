@@ -40,7 +40,7 @@ probe must never read as success).
 | `handles-probe.js` — markers are small, the hit area stays finger-sized, alignment kept | 5 | green (touch) |
 | `mobile-probe.js` — one finger = sticker ops, two fingers = pan, second finger cancels a drag, double-tap deletes | 12 | green |
 | `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag, and the contact count returns to zero | 8 | green |
-| `sticker-transform-probe.js` — pinch scale + twist rotate inside the frame (M6) | 8 | **3 green** — not implemented |
+| `sticker-transform-probe.js` — two fingers whose centroid is inside the selected sticker's frame pinch-scale it (uniformly), twist-rotate it, and drag it — all in ONE undo step — while the photo does not pan; two fingers outside the frame still pan | 9 | green (2026-11-14) |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
@@ -168,6 +168,15 @@ rather than letting "no change" read as success.
   middle-button handling: nothing happened, so "it did not select", "it cleaned up"
   and "the page did not scroll" were all trivially true. Each now requires the
   gesture to have actually happened.
+- **A gate's aim goes stale when an EARLIER gesture moves the target.** Two
+  hands, two directions. (a) The probe's own steps: `sticker-transform-probe.js`
+  computes its pinch points once, at arm time, and its two-finger drag moved the
+  sticker first — so the clamp step then panned the photo instead (`to` unchanged
+  at 70.2px, mode `["0","",""]`), and the criterion passed while testing nothing.
+  Fixed by resolving the points from the page at dispatch time (`fns` on the
+  touch steps; the frame's centre is stable through a pinch, since scaling happens
+  about it). (b) The hit test: `mobile-probe.js` pressed where the sticker had
+  been, not where it was, so no drag was ever live.
 - **Assert the mechanism, not only its consequence, when the consequence depends on
   the environment.** `wheelDoesNotScrollPage` could not be broken by deleting
   `preventDefault()` — the page is scrollable, but a dispatched wheel over the
@@ -275,6 +284,25 @@ rather than letting "no change" read as success.
   That is how a change gets attributed to the right side of the blame.
 
 ## Manual checklist (things the probes cannot see)
+
+- **A second finger landing on a live touch gesture.** CDP cannot deliver it
+  through this harness: a `touchStart` that carries the already-active point is
+  dropped wholesale (measured twice, `dataset.pointers` stayed at 1), so the app
+  never sees two pointers and no implementation could cancel anything. The
+  `secondFingerCancelsDrag` assertion was therefore REMOVED from
+  `mobile-probe.js` — and note that it had been passing vacuously: with arm-time
+  coordinates the press missed the sticker entirely, so no drag was ever live,
+  two empty-canvas fingers merely panned, and the sticker rode the image with
+  `rel` ≈ 0. Its gesture steps remain (pointer bookkeeping), and the mode
+  decision it was reaching for is covered from the other side by
+  `sticker-transform-probe.js`. Restoring it needs a harness that can add a
+  finger mid-gesture (`tests/e2e/run.py`'s `touchAdd` is the beginnings of one,
+  but Chromium still drops the event).
+- **A two-finger gesture whose fingers land on the frame's HANDLES.** Delivered
+  by implicit pointer capture to the handle, not the canvas, so the transform is
+  entered and then receives no updates unless the window listener drives it too
+  (it does, and the M6 probe's clamp step exercises exactly this). No separate
+  criterion asserts the handle path specifically.
 
 - **No keyboard zoom.** Ctrl/Cmd `+` / `-` is the browser's own page zoom, which is
   an accessibility feature — stealing it would be a worse bug than having no

@@ -54,9 +54,26 @@
       yellowW: maxX >= 0 ? (maxX - minX + 1) * csx : 0,
       yellowH: maxY >= 0 ? (maxY - minY + 1) * csy : 0,
       orientation: angle === null ? null : Math.round(angle * 10) / 10,
+      // Centre of the sticker in canvas-relative CSS px. Only DIFFERENCES are
+      // used, so the shared origin cancels.
+      yellowCx: maxX >= 0 ? ((minX + maxX) / 2) * csx : null,
+      yellowCy: maxY >= 0 ? ((minY + maxY) / 2) * csy : null,
       imageX: rn > 50 ? rect.left + rx * csx : null,
       imageY: rn > 50 ? rect.top + ry * csy : null,
       selectionVisible: !document.getElementById('select-box').hidden,
+      // Which gesture mode the app is in RIGHT NOW. Only readable while the
+      // fingers are still down (the flags are cleared on release), so the probe
+      // takes a mid-gesture read — without it, an inert gesture and a clamped
+      // one are indistinguishable from the pixels alone.
+      mode: [canvas.dataset.pointers, canvas.dataset.transforming || '', canvas.dataset.panning || ''],
+      // Diagnosis only (not a criterion): the app's own geometry for the
+      // selected sticker. Splits "the transform never ran" from "it ran and the
+      // canvas did not redraw".
+      store: (() => {
+        const app = window.__stickerface;
+        const st = app && app.store.state.stickers.find((x) => x.id === app.store.state.selection);
+        return st ? { w: Math.round(st.w * 10000) / 10000, rot: Math.round(st.rot * 1000) / 1000 } : null;
+      })(),
     };
   };
 
@@ -112,45 +129,84 @@
     const PINCH_FROM = P(0, arm, 0);
     const PINCH_OUT = P(0, arm * 2.6, 0);
     const TWIST = P(0, arm * 2.6, (35 * Math.PI) / 180);
-    const PINCH_IN = P(0, Math.max(6, arm * 0.25), (35 * Math.PI) / 180);
+    // Hard enough to drive k BELOW the clamp's floor: separation / 40px start
+    // distance must be under the floor (16 natural px / 216 natural px = 0.074),
+    // so without the clamp this shrinks to a 1-2 px smudge. That is what makes
+    // the "did not vanish" criterion falsifiable instead of trivially true.
+    //
+    // Aimed from the LIVE selection frame, not from arm-time coordinates: an
+    // earlier gesture in this probe (the two-finger drag) has moved the sticker
+    // by the time this runs, so absolute points no longer sit on it — measured,
+    // that turned this criterion into a pan of the photo. The frame's CENTRE is
+    // stable through a pinch (scaling happens about it), so frame-relative
+    // offsets are valid for the whole gesture.
+    window.__sfAt = (dx, dy) => {
+      const f = document.getElementById('select-box').getBoundingClientRect();
+      return [f.left + f.width / 2 + dx, f.top + f.height / 2 + dy];
+    };
+    const ARM_HALF = arm * 1.3;                    // = the holding distance's half
+    const pinchInStep = (half) => ({
+      t: 'touchMove',
+      fns: [`window.__sfAt(${-half}, 0)`, `window.__sfAt(${half}, 0)`],
+      ms: 45,
+    });
     const PAN_FROM = TWO_EMPTY;
     const PAN_TO = [[TWO_EMPTY[0][0] + 60, TWO_EMPTY[0][1]], [TWO_EMPTY[1][0] + 60, TWO_EMPTY[1][1]]];
+    // A two-finger DRAG inside the frame: both points shift by the same vector,
+    // so the separation and the angle are unchanged — pure translation.
+    const DRAG_BY = [44, 30];
+    const DRAG_FROM = P(0, arm, 0);
+    const DRAG_TO = DRAG_FROM.map(([x, y]) => [x + DRAG_BY[0], y + DRAG_BY[1]]);
 
     window.__sfSnaps = {};
     window.__sfSnap = (name) => { window.__sfSnaps[name] = measure(); return true; };
 
     window.__sfNextInput = [
       { t: 'read', name: 't0' },
-      // 1) pinch out inside the frame
+      // 1) ONE continuous two-finger gesture: pinch out, then twist, without
+      //    lifting. The spec is one undo entry per press-release ("press ->
+      //    release is one command"), so a plan that lifts between the two makes
+      //    them two commands and cannot support the one-undo claim at all —
+      //    which is exactly how this criterion first failed.
       { t: 'touchStart', pts: PINCH_FROM, ms: 90 },
       ...lerp(PINCH_FROM, PINCH_OUT, 8),
-      { t: 'touchEnd', pts: [], ms: 260 },
       { t: 'read', name: 'afterPinch' },
-      // 2) twist inside the (now larger) frame
-      { t: 'touchStart', pts: PINCH_OUT, ms: 90 },
       ...lerp(PINCH_OUT, TWIST, 8),
-      { t: 'touchEnd', pts: [], ms: 260 },
       { t: 'read', name: 'afterTwist' },
-      // 3) one undo must restore size AND angle together
+      { t: 'touchEnd', pts: [], ms: 260 },
+      // 3) one undo must restore size AND angle together — the whole gesture
       { t: 'key', key: 'z', code: 'KeyZ', vk: 90, modifiers: 2, ms: 320 },
       { t: 'read', name: 'afterUndo' },
-      // 4) two fingers OUTSIDE the frame still pan the image
+      // 4) two-finger DRAG inside the frame: the centroid moves while the
+      //    fingers keep their distance and angle, so this is pure translation —
+      //    the third half of the spec'd gesture, and nothing else covers it.
+      { t: 'touchStart', pts: DRAG_FROM, ms: 90 },
+      ...lerp(DRAG_FROM, DRAG_TO, 8),
+      { t: 'touchEnd', pts: [], ms: 260 },
+      { t: 'read', name: 'afterDrag' },
+      // 5) pinch in hard: the sticker must not vanish or invert. BEFORE the pan
+      //    step on purpose: the pan moves the view, and then the frame's screen
+      //    coordinates (computed once, at arm time) no longer sit on the sticker
+      //    — the gesture silently becomes a pan and the criterion passes while
+      //    testing nothing. That is exactly how this failed the first time.
+      { t: 'touchStart', fns: [`window.__sfAt(${-ARM_HALF}, 0)`, `window.__sfAt(${ARM_HALF}, 0)`], ms: 90 },
+      ...[ARM_HALF * 0.85, ARM_HALF * 0.7, ARM_HALF * 0.55].map(pinchInStep),
+      { t: 'read', name: 'duringPinchIn' },
+      ...[ARM_HALF * 0.4, ARM_HALF * 0.25, ARM_HALF * 0.1, 0.75].map(pinchInStep),
+      { t: 'touchEnd', pts: [], ms: 260 },
+      { t: 'read', name: 'afterPinchIn' },
+      // 5) two fingers OUTSIDE the frame still pan the image
       { t: 'touchStart', pts: PAN_FROM, ms: 90 },
       ...lerp(PAN_FROM, PAN_TO, 8),
       { t: 'touchEnd', pts: [], ms: 260 },
       { t: 'read', name: 'afterPan' },
-      // 5) pinch in hard: the sticker must not vanish or invert
-      { t: 'touchStart', pts: PINCH_OUT, ms: 90 },
-      ...lerp(PINCH_OUT, PINCH_IN, 8),
-      { t: 'touchEnd', pts: [], ms: 260 },
-      { t: 'read', name: 'afterPinchIn' },
     ];
 
     window.__sfReadTouch = () => {
       const s = window.__sfSnaps;
       const out = { steps: [] };
       const t0 = s.t0, pin = s.afterPinch, tw = s.afterTwist, un = s.afterUndo,
-            pan = s.afterPan, pinIn = s.afterPinchIn;
+            dr = s.afterDrag, pan = s.afterPan, pinIn = s.afterPinchIn;
       const imgMove = (a, b) => (a && b && a.imageX !== null && b.imageX !== null)
         ? Math.hypot(b.imageX - a.imageX, b.imageY - a.imageY) : null;
       const dAng = (a, b) => (a && b && a.orientation !== null && b.orientation !== null)
@@ -159,6 +215,8 @@
       out.steps.push(['afterPinch', pin]);
       out.steps.push(['afterTwist', tw]);
       out.steps.push(['afterUndo', un]);
+      out.steps.push(['afterDrag', dr]);
+      out.steps.push(['duringPinchIn', s.duringPinchIn]);
       out.steps.push(['afterPan', pan]);
       out.steps.push(['afterPinchIn', pinIn]);
 
@@ -180,11 +238,38 @@
         (dAng(t0, un) === null || dAng(t0, un) < 6);
       out.steps.push(['undoSize', [t0 && t0.yellowW, un && un.yellowW]]);
       out.steps.push(['undoOrientation', [t0 && t0.orientation, un && un.orientation]]);
-      const panMove = imgMove(un, pan);
+      // Two-finger DRAG is pure translation: the sticker's centre follows the
+      // centroid by the drag vector, the sticker does not resize, and the photo
+      // does not move. Covers the spec's "centroid drag = move" half, which had
+      // no criterion at all (a build with no translate step passed everything).
+      const tr = (un && dr && un.yellowCx !== null && dr.yellowCx !== null)
+        ? [dr.yellowCx - un.yellowCx, dr.yellowCy - un.yellowCy] : null;
+      const sizeKept = !!(un && dr && un.yellowW > 0) && Math.abs(dr.yellowW / un.yellowW - 1) < 0.1;
+      out.twoFingerDragMovesSticker = !!(tr && sizeKept
+        && Math.abs(tr[0] - DRAG_BY[0]) < 8 && Math.abs(tr[1] - DRAG_BY[1]) < 8
+        && imgMove(un, dr) < 5);
+      out.steps.push(['dragOnSticker', {
+        moved: tr, sizeKept, imageMoved: imgMove(un, dr), mode: dr && dr.mode,
+      }]);
+      // Measured from the HARD pinch-in, and now falsifiable: it must have
+      // actually shrunk the sticker (an inert gesture is trivially "not
+      // vanished") and stopped at the floor rather than collapsing to a smudge.
+      // The floor is 16 natural px; the sticker is 216 natural px at placement
+      // and reads as 70 CSS px, so the floor is ~5 CSS px — hence >= 4, which a
+      // clamp-less build (1.5/40 x 70 = 2.6 px) fails.
+      const shrank = !!pinIn && !!un && un.yellowW > 0 && pinIn.yellowW < un.yellowW * 0.8;
+      out.pinchClampsSize = !!(pinIn && shrank && pinIn.yellowPixels > 10 && pinIn.yellowW >= 4);
+      out.steps.push(['afterPinchInW', pinIn && pinIn.yellowW]);
+      out.steps.push(['pinchInContext', {
+        from: un && un.yellowW,
+        to: pinIn && pinIn.yellowW,
+        yellowPixels: pinIn && pinIn.yellowPixels,
+        mode: pinIn && pinIn.mode,
+        imageMoved: imgMove(un, pinIn),
+      }]);
+      const panMove = imgMove(pinIn, pan);
       out.twoFingerOutsideFrameStillPans = panMove !== null && panMove > 25;
       out.steps.push(['imageMoveDuringPan', panMove]);
-      out.pinchClampsSize = !!pinIn && pinIn.yellowPixels > 200 && pinIn.yellowW > 6;
-      out.steps.push(['afterPinchInW', pinIn && pinIn.yellowW]);
       return JSON.stringify(out);
     };
 

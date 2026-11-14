@@ -157,6 +157,39 @@ SELECTED sticker's emoji over it, so the highlight points at what an edit would
 change rather than at an unrelated emoji. A refused swap — a blur selected, or the
 same emoji — still updates `lastPickedSrc`.
 
+## Two-finger sticker transform: one decision, start-relative maths
+
+The gesture split is `centroid ∈ selected sticker's rotated box → transform it,
+else pan the photo`, and the mode is decided ONCE, when the second pointer lands
+(`_tryEnterStickerTransform`, called from BOTH the canvas and the handle
+two-pointer branches — a handle press stops propagation, so the canvas branch
+never sees it). It is never re-evaluated mid-gesture: a transform cannot become a
+pan or vice versa, which is what makes the gesture predictable.
+
+Every frame is derived from the gesture's START snapshot plus the current
+pointers — a ratio of ratios, never an accumulation:
+
+- scale = |p1−p2| / |start p1−p2|, applied to the START size, so both axes get
+  the same k and a square stays square. `clampStickerScale` floors the shorter
+  side at 16 image px (and caps it at 4× the image's shorter side) so k stays
+  positive: a hard pinch-in cannot vanish or invert the sticker.
+- rotation = the shortest signed angle delta added to the START rotation, about
+  the sticker's own centre. Projecting the pointer's absolute angle would snap the
+  sticker on the first move; rotating about the gesture centroid would make it
+  walk away as you twist.
+- translate = the centroid delta, converted from client px into natural px, so a
+  two-finger drag repositions without changing size.
+
+`inStickerBox` is the single definition of "on this sticker" (shared with
+`hitTest`); `_endStickerTransform` commits through the same `beginDrag`/`commitDrag`
+pair a one-finger drag uses, so press→release is ONE undo entry.
+
+**The trap that cost the most:** a touch pointer is implicitly captured by
+whatever received its `pointerdown`. When a pinch's fingers land on the frame's
+handles, every move is delivered to the HANDLE — so `_applyStickerTransform` has
+to be driven from the window-level listener as well, or the transform is entered
+and then receives no updates while `dataset.transforming` cheerfully reads `1`.
+
 ## View state: three input adapters, one function
 
 `this.view` (`{dx, dy, scale}`, CSS px, per-photo, reset by `fitCanvas()`) is the

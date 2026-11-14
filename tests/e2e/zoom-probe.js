@@ -114,13 +114,25 @@
     r.exportBefore = await exportNormalizedStickerCentre();
     log('exportBefore', r.exportBefore);
 
-    const CENTRE = [rect.left + rect.width / 2, rect.top + rect.height / 2];
+    // The pinch centroid is RAISED off the canvas centre's line, not moved
+    // sideways: the 300px segment is horizontal and needs the centre's X to stay
+    // on-canvas, but the centroid's Y is free. It has to clear the sticker's
+    // frame, because fingers whose centroid lands inside the SELECTED sticker's
+    // frame transform that sticker instead of zooming the photo (M6) — at the
+    // canvas centre the ~70px frame did contain it. 0.2h is ~52px above the
+    // sticker's centre, outside its ~35px half-height.
+    const CENTRE = [rect.left + rect.width / 2, rect.top + rect.height * 0.2];
     const seg = (dist, rot) => [
       [CENTRE[0] + Math.cos(rot) * dist / 2, CENTRE[1] + Math.sin(rot) * dist / 2],
       [CENTRE[0] - Math.cos(rot) * dist / 2, CENTRE[1] - Math.sin(rot) * dist / 2],
     ];
-    // Centroid stays at the canvas centre; the sticker sits near 45%/40% of the
-    // canvas, so the centroid is OUTSIDE its frame -> image zoom mode.
+    // The pinch centroid is the canvas CENTRE and must stay there: the 300px
+    // segment needs the whole width to fit on-canvas. So the sticker is placed
+    // clear of it instead (bottom-left) — fingers whose centroid lands inside
+    // the SELECTED sticker's frame transform that sticker rather than zooming
+    // the photo (M6), and at 45%/40% the frame did contain the centre once the
+    // sticker was ~70px wide. The selection frame is still on screen, which is
+    // what selectionFrameTracksZoom measures.
     const ZOOM_MIN = seg(30, 0);
     const ZOOM_OUT = seg(90, 0);
     const ZOOM_MAX = seg(300, 0);

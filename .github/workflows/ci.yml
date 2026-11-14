@@ -146,3 +146,9 @@ jobs:
         env:
           E2E_PROBE: tests/e2e/desktop-zoom-probe.js
         run: bash scripts/e2e.sh
+
+      - name: Gate — two-finger sticker transform (pinch, twist, drag) inside the frame
+        env:
+          E2E_MOBILE: "1"
+          E2E_PROBE: tests/e2e/sticker-transform-probe.js
+        run: bash scripts/e2e.sh

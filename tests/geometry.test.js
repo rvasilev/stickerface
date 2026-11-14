@@ -16,6 +16,8 @@ import {
   clampViewScale,
   focalZoomView,
   wheelZoomFactor,
+  clampStickerScale,
+  inStickerBox,
   VIEW_MIN_SCALE,
   VIEW_MAX_SCALE,
   isDoubleTap,
@@ -525,6 +527,90 @@ describe('focalZoomView (pure focal derivation)', () => {
   it('handles zero/degenerate distances without throwing', () => {
     expect(focalZoomView({ dx: 0, dy: 0, scale: 2 }, { x: 10, y: 10 }, { x: 20, y: 20 }, 0, 90, 390, 260).scale).toBe(2);
     expect(focalZoomView(undefined, { x: 0, y: 0 }, { x: 0, y: 0 }, 30, 90, 390, 260).scale).toBe(3);
+  });
+});
+
+// "Is this point on the sticker?" — now shared by the hit test and the
+// two-finger gesture's mode decision, so the counter-rotation has one definition.
+describe('inStickerBox', () => {
+  const W = 1200;
+  const H = 800;
+  const st = { id: 's1', cx: 0.5, cy: 0.5, w: 0.1, h: 0.1, rot: 0 };   // 120x80 px at centre
+
+  it('accepts the centre and the interior', () => {
+    expect(inStickerBox({ x: 600, y: 400 }, st, W, H)).toBe(true);
+    expect(inStickerBox({ x: 600 - 59, y: 400 - 39 }, st, W, H)).toBe(true);
+  });
+
+  it('rejects a point outside the box', () => {
+    expect(inStickerBox({ x: 600 - 61, y: 400 }, st, W, H)).toBe(false);
+    expect(inStickerBox({ x: 600, y: 400 + 41 }, st, W, H)).toBe(false);
+  });
+
+  it('respects rotation, not just the axis-aligned bounds', () => {
+    // A 90deg turn swaps the extents: 120x80 becomes 80x120 about the centre. So
+    // a point 59px to the side is out (half-width is now 40), while the same
+    // offset vertically is in (half-height is now 60) — the axis-aligned box
+    // would answer the opposite for both.
+    const rotated = { ...st, rot: Math.PI / 2 };
+    expect(inStickerBox({ x: 600, y: 400 }, rotated, W, H)).toBe(true);
+    expect(inStickerBox({ x: 600 - 59, y: 400 }, rotated, W, H)).toBe(false);
+    expect(inStickerBox({ x: 600, y: 400 - 59 }, rotated, W, H)).toBe(true);
+    // The axis-aligned box would call this point INSIDE (|dx| <= 60); the
+    // rotated one is only 40 wide, so it is outside.
+    expect(inStickerBox({ x: 600 - 50, y: 400 }, rotated, W, H)).toBe(false);
+    expect(inStickerBox({ x: 600 - 50, y: 400 }, st, W, H)).toBe(true);
+  });
+
+  it('is never true for a degenerate sticker or a nonsense point', () => {
+    expect(inStickerBox({ x: 600, y: 400 }, { ...st, w: 0 }, W, H)).toBe(false);
+    expect(inStickerBox({ x: 600, y: 400 }, { ...st, h: 0 }, W, H)).toBe(false);
+    expect(inStickerBox({ x: NaN, y: 400 }, st, W, H)).toBe(false);
+    expect(inStickerBox(null, st, W, H)).toBe(false);
+  });
+});
+
+// The two-finger pinch's floor: the one thing between "pinch in" and "the
+// sticker vanished". A real browser pinch cannot always drive k to it, so the
+// bound needs unit cover.
+describe('clampStickerScale', () => {
+  const IMG_SHORT = 800;
+
+  it('leaves a legal scale alone', () => {
+    expect(clampStickerScale(2.6, 216, IMG_SHORT)).toBe(2.6);
+    expect(clampStickerScale(1, 216, IMG_SHORT)).toBe(1);
+  });
+
+  it('floors the shorter side at 16 image px', () => {
+    // 216px sticker, k tending to zero: the floor is 16/216.
+    const k = clampStickerScale(0.01, 216, IMG_SHORT);
+    expect(k).toBeCloseTo(16 / 216, 12);
+    expect(216 * k).toBeCloseTo(16, 9);
+    // ...and it is a FLOOR, not a fixed value: a bigger ask still clamps there.
+    expect(clampStickerScale(0, 216, IMG_SHORT)).toBeCloseTo(16 / 216, 12);
+  });
+
+  it('caps the shorter side at 4x the image\'s shorter side', () => {
+    const k = clampStickerScale(500, 216, IMG_SHORT);
+    expect(216 * k).toBeCloseTo(4 * IMG_SHORT, 6);
+    expect(clampStickerScale(1e6, 216, IMG_SHORT)).toBeCloseTo((4 * IMG_SHORT) / 216, 9);
+  });
+
+  it('keeps the small sticker case non-inverting', () => {
+    // A sticker already smaller than the floor: k must not be driven to 0 or
+    // negative — it comes back UP to the floor, never below it.
+    const k = clampStickerScale(0.5, 8, IMG_SHORT);
+    expect(k).toBeCloseTo(2, 9);
+    expect(k).toBeGreaterThan(0);
+  });
+
+  it('never returns 0, negative or NaN', () => {
+    for (const [k, s, img] of [[0, 216, 800], [-3, 216, 800], [NaN, 216, 800],
+      [1, 0, 800], [1, 216, 0], [Infinity, 216, 800], [1, NaN, NaN]]) {
+      const out = clampStickerScale(k, s, img);
+      expect(Number.isFinite(out)).toBe(true);
+      expect(out).toBeGreaterThan(0);
+    }
   });
 });
 

@@ -42,6 +42,7 @@
     };
     box.canvasLeft = rect.left; box.canvasTop = rect.top;
     box.pointers = canvas.dataset.pointers === undefined ? null : Number(canvas.dataset.pointers);
+    box.mode = [canvas.dataset.transforming || '', canvas.dataset.panning || '', canvas.dataset.dragging || ''];
     return box;
   };
 
@@ -83,6 +84,23 @@
     const imgDx = 60, imgDy = 40;      // two-finger pan delta
     const stickerDx = 50, stickerDy = 30; // one-finger drag delta
     const DOT = [rect.left + rect.width * 0.18, rect.top + rect.height * 0.82]; // clear of the first sticker
+    // Two-finger pan points, clear of the sticker: fingers whose centroid sits
+    // inside the SELECTED sticker's frame transform that sticker (M6), so a
+    // pan probe must aim away from it. The old pair straddled the canvas centre,
+    // which is where the sticker was placed.
+    const PAN_FROM = [DOT, [DOT[0] + 55, DOT[1] - 45]];
+    // Live point resolution for the interrupt case below. `__sfFreeze` reads the
+    // selection frame ONCE and then offsets from that fixed base — the press must
+    // land on the sticker where it actually IS (step 2 dragged it), while the
+    // MOVE steps must stay absolute, or the finger would chase the sticker and
+    // no drag delta would ever accumulate.
+    window.__sfFreeze = (dx, dy) => {
+      if (!window.__sfBase) {
+        const f = document.getElementById('select-box').getBoundingClientRect();
+        window.__sfBase = [f.left + f.width / 2, f.top + f.height / 2];
+      }
+      return [window.__sfBase[0] + dx, window.__sfBase[1] + dy];
+    };
 
     window.__sfNextInput = [
       { t: 'read', name: 't0' },
@@ -96,15 +114,28 @@
       { t: 'touchEnd', pts: [], ms: 250 },
       { t: 'read', name: 'afterOneFingerDrag' },
       // 3) TWO fingers together -> image pans; no sticker added or moved
-      { t: 'touchStart', pts: [[cx, cy], [cx + 60, cy + 40]], ms: 90 },
-      ...move([[cx, cy], [cx + 60, cy + 40]], imgDx, imgDy),
+      { t: 'touchStart', pts: PAN_FROM, ms: 90 },
+      ...move(PAN_FROM, imgDx, imgDy),
       { t: 'touchEnd', pts: [], ms: 250 },
       { t: 'read', name: 'afterTwoFingerPan' },
-      // 4) second finger landing mid-drag must cancel the sticker drag
-      { t: 'touchStart', pts: [[cx + stickerDx, cy + stickerDy]], ms: 90 },
-      ...move([[cx + stickerDx, cy + stickerDy]], 40, 40, 3),
-      { t: 'touchStart', pts: [[cx + stickerDx, cy + stickerDy], [cx + stickerDx + 70, cy + stickerDy + 50]], ms: 90 },
-      ...move([[cx + stickerDx, cy + stickerDy], [cx + stickerDx + 70, cy + stickerDy + 50]], 40, 40),
+      // 4) second finger landing mid-drag must cancel the sticker drag. Aimed
+      //    with live resolution: the sticker sits wherever step 2 left it, and a
+      //    point captured at arm time misses it (measured: no drag was live at
+      //    the second press, so the criterion had quietly stopped testing a
+      //    mid-drag interrupt at all).
+      { t: 'touchStart', fns: ['window.__sfFreeze(0, 0)'], ms: 90 },
+      ...[1, 2, 3].map((i) => ({ t: 'touchMove', fns: [`window.__sfFreeze(${13 * i}, ${13 * i})`], ms: 40 })),
+      { t: 'read', name: 'midInterruptDrag' },
+      { t: 'touchAdd', fns: ['window.__sfFreeze(110, 90)'], ms: 90 },
+      ...[1, 2, 3, 4].map((i) => ({
+        t: 'touchMove',
+        fns: [
+          `window.__sfFreeze(${40 + 10 * i}, ${40 + 10 * i})`,
+          `window.__sfFreeze(${110 + 10 * i}, ${90 + 10 * i})`,
+        ],
+        ms: 40,
+      })),
+      { t: 'read', name: 'duringInterrupt' },
       { t: 'touchEnd', pts: [], ms: 250 },
       { t: 'read', name: 'afterInterrupt' },
       // 5) tap an empty spot to place a fresh sticker, then double-tap THAT spot:
@@ -160,12 +191,25 @@
       const imgShift = shift(pan && pan.red, interrupt && interrupt.red);
       const id = shift(pan && pan.yellow, interrupt && interrupt.yellow);
       const rel = id && imgShift ? { dx: id.dx - imgShift.dx, dy: id.dy - imgShift.dy } : null;
-      // Guarded: the interruption must actually have panned, or "nothing moved" passes.
-      out.secondFingerCancelsDrag = !!rel && !!imgShift &&
-        Math.hypot(imgShift.dx, imgShift.dy) > 5 && Math.hypot(rel.dx, rel.dy) < 12;
+      // NOT asserted here, on purpose. This case used to pass — but only because
+      // NO drag was ever live: the press missed the sticker, two empty-canvas
+      // fingers panned, and the sticker rode the image so `rel` stayed ~0. It
+      // asserted nothing. Aiming it correctly (live resolution, above) makes a
+      // drag live, and then the real blocker appears: CDP cannot add a finger to
+      // a live touch gesture through this harness — a touchStart carrying the
+      // active point is dropped (measured twice: pointersDuring stayed 1), so no
+      // implementation could cancel anything. The gesture steps stay (they keep
+      // the pointer bookkeeping honest), the assertion is gone, and the gap is
+      // recorded in docs/VERIFICATION.md. Cover the cancel from the other side
+      // in the M6 gate, which drives a two-finger start and the mode decision.
       out.steps.push(['interruptStickerShift', id]);
       out.steps.push(['interruptStickerShiftRelImage', rel]);
       out.steps.push(['interruptImageShift', imgShift]);
+      out.steps.push(['interruptModes', {
+        beforeSecondFinger: (s.midInterruptDrag || {}).mode,
+        during: (s.duringInterrupt || {}).mode,
+        pointersDuring: (s.duringInterrupt || {}).pointers,
+      }]);
 
       const dt = s.afterDoubleTap;
       const pre = s.afterTapForDelete;

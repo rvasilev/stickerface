@@ -88,7 +88,6 @@ export function handlePositions(rect, rot) {
 export function hitTest(point, stickers, imgW, imgH) {
   if (!Array.isArray(stickers) || stickers.length === 0) return null;
   if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
-  const EPS = 1e-9;
   // z descending; array order breaks ties (later entries count as on top).
   const ordered = stickers
     .map((sticker, index) => ({ sticker, index }))
@@ -97,24 +96,67 @@ export function hitTest(point, stickers, imgW, imgH) {
       return dz !== 0 ? dz : b.index - a.index;
     });
   for (const { sticker } of ordered) {
-    const wPx = px(finite(sticker.w), imgW);
-    const hPx = px(finite(sticker.h), imgH);
-    if (wPx <= 0 || hPx <= 0) continue;
-    const cxp = px(finite(sticker.cx), imgW);
-    const cyp = px(finite(sticker.cy), imgH);
-    const rot = finite(sticker.rot);
-    const dx = point.x - cxp;
-    const dy = point.y - cyp;
-    const c = Math.cos(rot);
-    const s = Math.sin(rot);
-    // Counter-rotate into the local frame (rotate by -rot).
-    const lx = dx * c + dy * s;
-    const ly = -dx * s + dy * c;
-    if (Math.abs(lx) <= wPx / 2 + EPS && Math.abs(ly) <= hPx / 2 + EPS) {
-      return sticker.id;
-    }
+    if (inStickerBox(point, sticker, imgW, imgH)) return sticker.id;
   }
   return null;
+}
+
+/** Smallest a two-finger pinch may shrink a sticker's shorter side to, in
+ *  natural px. Without it a hard pinch-in drives k toward 0 and the sticker
+ *  vanishes (or, past the origin, inverts) with no way back but undo. */
+export const MIN_STICKER_PX = 16;
+
+/** Clamp a two-finger pinch's scale factor so the sticker's SHORTER side stays
+ *  within [minPx, 4 x the image's shorter side]. Returns k unchanged when it is
+ *  already legal or when the start size is degenerate.
+ *
+ *  Pure and separate because it is the only thing standing between "pinch in"
+ *  and "the sticker vanished" — and because a real browser pinch cannot always
+ *  drive k to the floor, so the bound needs unit cover rather than an e2e run.
+ *
+ *  @param {number} k requested scale factor
+ *  @param {number} shortPx the sticker's shorter side at gesture start, image px
+ *  @param {number} imgShort the image's shorter side, px
+ *  @param {number} [minPx] smallest legal shorter side, image px
+ *  @returns {number} k, always finite and > 0 */
+export function clampStickerScale(k, shortPx, imgShort, minPx = MIN_STICKER_PX) {
+  const kk = finite(k, 1);
+  const s = finite(shortPx, 0);
+  const img = finite(imgShort, 0);
+  if (!(s > 0) || !(img > 0)) return kk > 0 ? kk : 1;
+  const minK = finite(minPx, MIN_STICKER_PX) / s;
+  const maxK = (4 * img) / s;
+  let out = kk;
+  if (out < minK) out = minK;
+  else if (out > maxK) out = maxK;
+  return out > 0 ? out : minK;
+}
+
+/** Is `point` (image px) inside this sticker's ROTATED box? The one definition
+ *  of "on the sticker": the hit test and the two-finger gesture's mode decision
+ *  both need it, and a second copy of the counter-rotation would drift.
+ *
+ *  Empty for a degenerate size, so a zero-area sticker is never "hit" and never
+ *  becomes a gesture target.
+ *
+ *  @param {Pt} point image px
+ *  @param {Sticker} sticker
+ *  @param {number} imgW px @param {number} imgH px
+ *  @returns {boolean} */
+export function inStickerBox(point, sticker, imgW, imgH) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return false;
+  const wPx = px(finite(sticker.w), imgW);
+  const hPx = px(finite(sticker.h), imgH);
+  if (wPx <= 0 || hPx <= 0) return false;
+  const rot = finite(sticker.rot);
+  const dx = point.x - px(finite(sticker.cx), imgW);
+  const dy = point.y - px(finite(sticker.cy), imgH);
+  const c = Math.cos(rot);
+  const s = Math.sin(rot);
+  // Counter-rotate into the local frame (rotate by -rot).
+  const lx = dx * c + dy * s;
+  const ly = -dx * s + dy * c;
+  return Math.abs(lx) <= wPx / 2 + 1e-9 && Math.abs(ly) <= hPx / 2 + 1e-9;
 }
 
 /** Resize by dragging a handle to `pointerPx`: the opposite edge/corner stays

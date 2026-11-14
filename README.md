@@ -64,6 +64,12 @@ v1 manual placement (images only — video is not supported):
   **Two gaps, deliberate:** no keyboard zoom (Ctrl `+`/`-` is the browser's own page
   zoom, an accessibility feature) and nothing for a middle-button-less trackpad
   (space-drag is the right follow-up).
+- **Two fingers inside the selected sticker's frame transform it; outside, they
+  pan the photo.** Pinch scales it uniformly (a square stays square), twisting
+  rotates it about its own centre, and dragging the pair repositions it —
+  Instagram-like, decided once when the second finger lands. A hard pinch-in stops
+  at a 16-pixel floor instead of collapsing the sticker, and the whole gesture is
+  one undo step, so `Ctrl+Z` restores size, angle and position together.
 - On a touch screen: **one finger** works the stickers (tap to place, drag to
   move, handles to resize/rotate), **two fingers** scroll the photo; a second
   finger cancels an in-flight sticker drag

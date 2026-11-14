@@ -375,7 +375,7 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M3** | browser acceptance gate (upload → place → export, pixels asserted), CI on push | `npm run e2e` = 27/27 + the other green probes, exit 0; CI workflow on push | **done** (CI added 2026-11-13) |
 | M4 (v2) | detection, auto-place, adopt/ignore | detection never required for export | not started |
 | **M5** | touch model: 1 finger = sticker ops, 2 fingers = pan the image; second finger cancels a drag | `npm run e2e:mobile` = 12/12 (incl. double-tap delete + zero leaked contacts), desktop probes green | **done** (2026-11-13) |
-| **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 8/8, M5 gate still green | **spec'd, not started** |
+| **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 9/9, M5 gate still green | **done** (2026-11-14) |
 | **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **done** (2026-11-14, three delegated rounds) |
 | **M8** | selected-sticker pad: nudge arrows + a 1 px/10 px step + size −/+, so a sticker too small to grab can still be moved and resized | `tests/e2e/pad-probe.js` = 7/7, every M1–M7 gate green | **done** (2026-11-14, delegated; the gate itself corrected once) |
 
@@ -386,6 +386,42 @@ It is a real browser, a real file upload and real pixel assertions — see
 `docs/VERIFICATION.md`. Adding Playwright later is fine; do not delete the probe.
 
 ## Status log
+
+- **2026-11-14** — two-finger sticker transform (M6). Gate first: 3/8 → 9/9, unit
+  129 → 138 (the probe now has nine criteria: the translate half had NONE, so a
+  build with no translate passed everything — added `twoFingerDragMovesSticker`).
+  The mode is decided ONCE, when the second pointer lands: centroid inside the
+  SELECTED sticker's box transforms it, anything else pans. Scale is a ratio of
+  the gesture-start distance, rotation is the angle delta added to the START
+  rotation about the sticker's own centre (so it cannot walk away), translate is
+  the centroid delta; `clampStickerScale` (new, pure, in geometry.js) floors the
+  shorter side at 16 image px so a hard pinch-in cannot vanish or invert it.
+  One undo entry per press-release.
+  Five traps, each found by measuring rather than reasoning:
+  (1) TOUCH POINTERS ARE IMPLICITLY CAPTURED by the element under the press — a
+  pinch whose fingers land on the frame's HANDLES delivers every move to the
+  handle, so the transform was entered (`dataset.transforming = 1`) and then got
+  no updates at all; the window listener drives it now too.
+  (2) the handles have their OWN two-pointer branch, which paned — and a handle
+  press calls `stopPropagation`, so the canvas branch never sees it.
+  (3) "has this press moved anything?" is the only thing separating two fingers
+  landing together (transform) from a second finger mid-drag (cancel, then pan).
+  (4) the probe's pinch and twist were two separate press-release gestures, so the
+  one-undo claim was unsatisfiable under the spec's own rule.
+  (5) `secondFingerCancelsDrag` had been passing VACUOUSLY — the press missed the
+  sticker, so no drag was ever live and two empty-canvas fingers merely panned
+  with the sticker riding the image. Aiming it correctly exposed that this harness
+  cannot add a finger to a live touch gesture (CDP drops a `touchStart` carrying
+  the active point; measured twice, pointers stayed 1), so that assertion was
+  removed and the gap recorded in `docs/VERIFICATION.md`.
+  Falsified with precise attribution: no clamp → exactly `pinchClampsSize` red
+  (sticker collapsed to 2.6px/42 pixels instead of stopping at 5.2px/154); no
+  translate → exactly `twoFingerDragMovesSticker` red (`moved: [0,0]`). 7/9.
+  Older gates needed setup fixes, not weaker assertions: `zoom-probe`'s pinch
+  centroid now clears the sticker's frame (its comment claimed it did; at the
+  canvas centre the frame contained it — 9/9), and `mobile-probe`'s pan points
+  moved clear of the sticker (11/11). `tests/e2e/run.py` gained `fns` resolution
+  on touch steps plus a `touchAdd` step.
 
 - **2026-11-14** — desktop wheel-zoom at the cursor and middle-button pan. Gate
   first: `desktop-zoom-probe.js` RED 0/10 → green 10/10, unit 124 → 129. No new zoom
