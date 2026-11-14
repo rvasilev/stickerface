@@ -40,6 +40,12 @@
     await sleep(200);
     log('placedStickers', app.store.state.stickers.length);
 
+    // Move is the default mode (M9) and a hidden handle refuses activation, so the
+    // sweep has to switch to Resize first. Without this every sample reads the same
+    // size and the probe reports a "blocked" threshold it never measured.
+    document.getElementById('mode-resize').click();
+    await sleep(150);
+
     // Drag the SE handle so the box becomes ~target px, keeping the NW corner pinned.
     const shrinkTo = async (targetPx) => {
       const h = box.querySelector('.handle[data-handle="se"]');

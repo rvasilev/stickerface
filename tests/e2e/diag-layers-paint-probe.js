@@ -57,14 +57,30 @@
     };
 
     snapshot('beforeAnyMove');
-    r.paintFollowsArrayOrder = px(CX, CY) === '255,255,255';
+
+    // Twemoji's ⬛ and ⬜ are NOT #000 and #fff — they paint as (49,55,61) and
+    // (230,231,232) — so comparing against pure black and white made both criteria
+    // permanently red and made this probe's verdict blame the store for its own
+    // constant. Learn the two colours from the paint itself: whichever sticker is
+    // last in the array is the one on top, which is the thing under test.
+    const whiteRef = px(CX, CY);        // white was added second, so it is on top
+    app.store.moveTo(white.id, 0);
+    app._draw();
+    await sleep(400);
+    const blackRef = px(CX, CY);
+    app.store.moveTo(white.id, 1);      // back to the original order
+    app._draw();
+    await sleep(400);
+    log('measuredColours', { whiteRef, blackRef, distinct: whiteRef !== blackRef });
+
+    r.paintFollowsArrayOrder = px(CX, CY) === whiteRef;
 
     // (a) DIRECT moveTo, no gesture: white (array idx 1) -> idx 0, so BLACK is painted last
     app.store.moveTo(white.id, 0);
     app._draw();
     await sleep(400);
     snapshot('afterDirectMoveTo');
-    r.paintFollowsArrayOrderOnDirectMove = px(CX, CY) === '0,0,0';
+    r.paintFollowsArrayOrderOnDirectMove = px(CX, CY) === blackRef;
 
     // and back, to be sure it is not a one-way accident
     app.store.moveTo(white.id, 1);

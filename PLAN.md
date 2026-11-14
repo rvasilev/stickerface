@@ -389,6 +389,18 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — gate integrity: the harness now enforces the rules the definition of
+  done only described. `run.py` printed its problem channels and returned 0, so a probe
+  that lost criteria mid-run, a phase whose reader threw, or a console exception all read
+  as green. It now FAILS on a console error or an uncaught exception (warnings stay
+  advisory and printed), on a non-empty phase `errors` array, on an unparseable or
+  non-object phase result, and — in touch mode — on no touch result at all. Proving it
+  found that the obvious extra check is wrong: failing a run when "a phase ran but
+  emitted no booleans" fired on TEN of the twenty green gates, because those probes use
+  the phase as an input DRIVER and assert in the main reader. The check is gone, with a
+  comment saying why, and `diag-harness-selfcheck-probe.js` keeps the proof that the
+  remaining checks bite: its reader returns nothing WITHOUT throwing, and the harness
+  must exit 1 with "no result at all" (it is a diagnostic, so it must never be a CI gate).
 - **2026-11-14** — round-2 audit: four correctness fixes, each with a regression test
   that was proven able to fail (all six fixes reverted in a throwaway copy → 8 of the
   new tests red). **Store:** a structural mutation during a live drag now settles the

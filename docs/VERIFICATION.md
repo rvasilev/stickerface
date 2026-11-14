@@ -93,6 +93,26 @@ npm run e2e -- https://rvasilev.github.io/stickerface/        # against the depl
 `HTTP_PORT`/`CDP_PORT` override the ports and `CHROME_BIN` the browser. There is no
 ad-hoc runner — a gate you can only start by hand stops being run.
 
+**What makes a run fail.** A tally of N/N is not a pass on its own. `run.py` also fails
+on: any uncaught exception or console **error** in the page (warnings stay advisory and
+are printed); a phase whose `errors` array is non-empty; a phase result that will not
+parse or is not an object; and, under `E2E_MOBILE=1`, no touch result at all. Each is
+printed as `=== FAILED: … ===`, so the reason rides in the log instead of being inferred
+from a missing tally.
+
+**What deliberately does NOT fail a run:** a phase that reports steps but no booleans.
+Most probes use their touch or drag phase as an input DRIVER and assert the result in the
+main reader — ten of the twenty CI gates do exactly that — so steps-without-criteria is
+the normal shape, and an attempt to treat it as a thrown reader failed all ten. A failure
+condition has to hang off what a probe *declares* or off its error channel, never off the
+absence of a boolean.
+
+`diag-harness-selfcheck-probe.js` is the proof that those checks bite: its touch reader
+returns nothing **without throwing**, so nothing else can catch it. The correct output is
+`rc=1`, a green `2/2` main reader, and `=== FAILED: touch phase: no result at all ===`.
+It is a diagnostic, must NOT be wired into CI, and exists so a future change to the
+failure conditions starts from evidence rather than from the same wrong guess.
+
 ### Real input, not synthetic events
 
 The app is canvas + pointer driven, and **synthetic events lie**: a

@@ -443,16 +443,22 @@ async def main(probe_path, url_match="8123"):
         except Exception:
             pass
 
-    problems = []
+    # An exception or a console ERROR fails the run. The definition of done says this
+    # section must print "(none)", and a green run that printed one anyway would be
+    # certifying a broken console. Warnings stay advisory — a Chrome deprecation
+    # notice is not a defect in this app — but they are still printed.
+    hard, soft = [], []
     for e in events:
         m = e.get("method")
         if m == "Runtime.exceptionThrown":
             d = e["params"]["exceptionDetails"]
             desc = d.get("exception", {}).get("description", "")
-            problems.append(f"EXCEPTION {d.get('text')} {desc[:300]}")
+            hard.append(f"EXCEPTION {d.get('text')} {desc[:300]}")
         elif m == "Runtime.consoleAPICalled" and e["params"].get("type") in ("error", "warning"):
             args = " ".join(str(a.get("value", a.get("description", ""))) for a in e["params"]["args"])
-            problems.append(f"CONSOLE {e['params']['type']}: {args[:300]}")
+            line = f"CONSOLE {e['params']['type']}: {args[:300]}"
+            (hard if e["params"]["type"] == "error" else soft).append(line)
+    problems = hard + soft
 
     print("=== console / uncaught exceptions ===")
     print("\n".join(problems) if problems else "(none)")
@@ -484,27 +490,45 @@ async def main(probe_path, url_match="8123"):
             if isinstance(v, bool):
                 checks[k] = v
 
-    # Phase-2 (real-input) results: drag / rotate (mouse) and touch.
+    # Phase-2 (real-input) results: drag / rotate (mouse) and touch. A phase that ran
+    # but contributed NO criteria is the dangerous shape: its criteria vanish, the run
+    # still prints a full-looking check list, and the omission is visible only to
+    # someone who counts. Every shortfall is named and failed.
+    failures = []
     for label, raw in (("drag phase", drag_result), ("rotate phase", rotate_result),
                        ("touch phase", touch_result)):
         if not raw:
             continue
         try:
             second = json.loads(raw)
-        except Exception:
-            second = None
-        if isinstance(second, dict):
-            print(f"=== {label} ===")
-            for step in second.get("steps", []):
-                print_step(step)
-            for e in second.get("errors", []):
-                print("PHASE ERROR: " + e)
-            for k, v in second.items():
-                if isinstance(v, bool):
-                    checks[k] = v
-        else:
+        except Exception as err:
+            failures.append(f"{label}: unparseable result ({err})")
             print(f"=== {label} ===")
             print(str(raw)[:800])
+            continue
+        if not isinstance(second, dict):
+            failures.append(f"{label}: result is not an object")
+            print(f"=== {label} ===")
+            print(str(raw)[:800])
+            continue
+        print(f"=== {label} ===")
+        for step in second.get("steps", []):
+            print_step(step)
+        for e in second.get("errors", []):
+            print("PHASE ERROR: " + e)
+            failures.append(f"{label}: {str(e)[:200]}")
+        for k, v in second.items():
+            if isinstance(v, bool):
+                checks[k] = v
+        # NOTE: a phase that reports steps but NO booleans is NOT a failure. Most
+        # probes use their touch/drag phase as an input DRIVER and assert the result
+        # in the main reader, so steps-without-criteria is the normal shape (ten of
+        # the twenty CI gates do it). An earlier version of this check inferred a
+        # thrown reader from the absent booleans and failed all ten. The catches that
+        # do hold are above: a non-empty `errors` array, an unparseable or non-object
+        # result, and (mobile) no result at all.
+    if os.environ.get("E2E_MOBILE") == "1" and not touch_result:
+        failures.append("touch phase: no result at all")
 
     print("=== checks ===")
     for k, v in checks.items():
@@ -514,7 +538,16 @@ async def main(probe_path, url_match="8123"):
         print("  (probe reported no boolean criteria — fix the probe)")
         return 1
     print(f"=== {len(checks) - len(failed)}/{len(checks)} passed ===")
-    return 1 if failed else 0
+    # A tally of N/N is not a pass on its own: the run also has to have produced the
+    # criteria it was supposed to, and a clean console. Naming these is what stops
+    # "no tally line" and a silent shortfall from being the only symptoms.
+    if hard:
+        print(f"=== FAILED: {len(hard)} console error(s)/exception(s) — see above ===")
+    for f in failures:
+        print(f"=== FAILED: {f} ===")
+    if failed or failures or hard:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
