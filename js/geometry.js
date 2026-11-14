@@ -112,7 +112,7 @@ export const MIN_STICKER_PX = 16;
  *
  *  Pure and separate because it is the only thing standing between "pinch in"
  *  and "the sticker vanished" — and because a real browser pinch cannot always
- *  drive k to the floor, so the bound needs unit cover rather than an e2e run.
+ *  drive k to the floor, so the bound is proved by unit cover instead.
  *
  *  @param {number} k requested scale factor
  *  @param {number} shortPx the sticker's shorter side at gesture start, image px

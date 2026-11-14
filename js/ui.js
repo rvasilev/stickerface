@@ -57,7 +57,7 @@ const COACH_TEXT = {
 };
 
 /** Cache of decoded bitmaps, keyed by sticker src. */
-export class CanvasApp {
+class CanvasApp {
   /**
    * @param {object} root
    */
@@ -110,10 +110,6 @@ export class CanvasApp {
     // Last completed tap (touch double-tap delete needs 350ms/25px windowing
     // inside this router — a separate listener would race pan arbitration).
     this._lastTap = null;
-    // Last pointerup point, so a browser dblclick can hit-test the SAME
-    // point the placement pass just used (dblclick has no client coords).
-    this._lastUp = null;
-
     this._bindEls();
     this._buildPicker();
     this._bindPointer();
@@ -308,7 +304,6 @@ export class CanvasApp {
     this._xform = null;
     this._tap = null;
     this._lastTap = null;
-    this._lastUp = null;
     const W = this.image.naturalWidth;
     const H = this.image.naturalHeight;
     const scale = Math.min(1, PREVIEW_LONG_EDGE / Math.max(W, H));
@@ -573,7 +568,7 @@ export class CanvasApp {
       const label = document.createElement('span');
       label.className = 'label';
       label.textContent = labelFor(st);
-      label.title = `${st.kind}${st.src ? ` — ${st.src}` : ''} · ${Math.round(st.cx * 100)}%, ${Math.round(st.cy * 100)}%`;
+      label.title = rowTitle(st);
       li.appendChild(label);
 
       const fwd = document.createElement('button');
@@ -720,7 +715,7 @@ export class CanvasApp {
     for (const row of this._layerRows) {
       const st = byId.get(row.id);
       if (!st) continue;
-      row.label.title = `${st.kind}${st.src ? ` — ${st.src}` : ''} · ${Math.round(st.cx * 100)}%, ${Math.round(st.cy * 100)}%`;
+      row.label.title = rowTitle(st);
     }
   }
 
@@ -909,9 +904,6 @@ export class CanvasApp {
   _maybePlaceOnTap(e) {
     const tap = this._tap;
     this._tap = null;
-    // Kept for the browser dblclick that follows a mouse gesture: dblclick
-    // carries no client coords, so it hit-tests this point.
-    this._lastUp = { x: e.clientX, y: e.clientY };
     if (!tap || tap.cancelled || !this.image) return;
     if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) return;   // a drag, not a tap
     if (performance.now() - tap.t > 500) return;
@@ -1047,11 +1039,10 @@ export class CanvasApp {
     if (this._tap) this._tap.cancelled = true;
     this._lastTap = null;
 
-    // The press that opened this gesture is not a drag: it applied nothing, so
-    // there is nothing to cancel — it just stops claiming the pointer, which
-    // the transform now owns. (Cancelling would instead restore a snapshot the
-    // transform is about to re-take.) That press may have landed on a HANDLE,
-    // whose listeners and pointer ownership have to go with it.
+    // The press that opened this gesture applied nothing, so there is no drag of
+    // its own to undo — but the transform is about to take its OWN snapshot, and a
+    // stale one from this press would be folded into it. Cancel it before that
+    // happens: the transform commits through the same begin/commit pair.
     if (this._cancelHandleDrag) {
       this._cancelHandleDrag();
       this._cancelHandleDrag = null;
@@ -1184,11 +1175,9 @@ export class CanvasApp {
   _bindDesktopDblclick() {
     this.els.canvas.addEventListener('dblclick', (e) => {
       if (!this.image) return;
-      const at = e.clientX != null && e.clientY != null
-        ? { x: e.clientX, y: e.clientY }
-        : this._lastUp;
-      if (!at) return;
-      this._removeTopmostAt(at.x, at.y);
+      // A dblclick is a MouseEvent, so it always carries coordinates — a fallback
+      // for their absence could never run.
+      this._removeTopmostAt(e.clientX, e.clientY);
     });
   }
 
@@ -1250,7 +1239,7 @@ export class CanvasApp {
 
       // Exactly one pointer: sticker mode.
       const pt = this._canvasPoint(e);
-      this._tap = { x: e.clientX, y: e.clientY, t: performance.now(), cancelled: false, onSticker: null };
+      this._tap = { x: e.clientX, y: e.clientY, t: performance.now(), cancelled: false };
 
       const hitId = hitTest(pt, this.store.state.stickers, this.image.naturalWidth, this.image.naturalHeight);
       if (hitId) {
@@ -1399,7 +1388,7 @@ export class CanvasApp {
   _startHandleDrag(el, e) {
     e.stopPropagation();
     // Hiding is not disabling: a hidden handle still fires this handler when
-    // something activates it (a script, a stale shortcut, a probe). Move mode
+    // something activates it (a stale shortcut, a programmatic click). Move mode
     // hides these, so refuse them explicitly rather than relying on the markup.
     if (el.hidden) return;
     const st = this._selectedSticker();
@@ -1773,6 +1762,11 @@ function labelFor(st) {
   return st.kind;
 }
 
+/** One title string for a layer row, wherever the row is built or refreshed. */
+function rowTitle(st) {
+  return `${st.kind}${st.src ? ` — ${st.src}` : ''} · ${Math.round(st.cx * 100)}%, ${Math.round(st.cy * 100)}%`;
+}
+
 function prevAspectOf(layout, image) {
   if (Array.isArray(layout) && layout.length) {
     const marker = layout.__aspect;
@@ -1793,4 +1787,3 @@ if (app instanceof CanvasApp) {
   app = new CanvasApp(document);
   window.__stickerface = app;
 }
-export { app };

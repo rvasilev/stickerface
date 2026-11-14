@@ -269,6 +269,20 @@ function drawEmoji(ctx, sticker, bitmap, imgW, imgH, scale, customBitmaps, fallb
  * space. The panned destination grid is handled by the caller's translate()
  * wrapping this draw.
  */
+/** The sticker's own clip, in canvas px: move to its centre, rotate about it, then
+ *  clip its rounded rect. ONE definition, because the native-filter and box-blur
+ *  branches must clip identically or a browser without `ctx.filter` renders a
+ *  different shape than one with it. */
+function clipStickerPatch(ctx, sx, sy, sw, sh, cr, rot) {
+  if (rot) {
+    ctx.translate(sx + sw / 2, sy + sh / 2);
+    ctx.rotate(rot);
+    ctx.translate(-(sx + sw / 2), -(sy + sh / 2));
+  }
+  roundedRectPath(ctx, sx, sy, sw, sh, cr);
+  ctx.clip();
+}
+
 function drawBlur(ctx, sticker, baseCanvas, imgW, imgH, scale) {
   const rect = stickerRect(sticker, imgW, imgH);
   const sx = rect.x * scale;
@@ -285,13 +299,7 @@ function drawBlur(ctx, sticker, baseCanvas, imgW, imgH, scale) {
   const dh = sh + 2 * inset;
 
   ctx.save();
-  if (sticker.rot) {
-    ctx.translate(sx + sw / 2, sy + sh / 2);
-    ctx.rotate(sticker.rot);
-    ctx.translate(-(sx + sw / 2), -(sy + sh / 2));
-  }
-  roundedRectPath(ctx, sx, sy, sw, sh, cr);
-  ctx.clip();
+  clipStickerPatch(ctx, sx, sy, sw, sh, cr, sticker.rot);
 
   if (typeof ctx.filter === 'string') {
     const prev = ctx.filter;
@@ -303,13 +311,7 @@ function drawBlur(ctx, sticker, baseCanvas, imgW, imgH, scale) {
     const blurred = boxBlurScratch(baseCanvas, rect.x, rect.y, rect.w, rect.h, dx, dy, dw, dh);
     if (blurred) {
       ctx.save();
-      if (sticker.rot) {
-        ctx.translate(sx + sw / 2, sy + sh / 2);
-        ctx.rotate(sticker.rot);
-        ctx.translate(-(sx + sw / 2), -(sy + sh / 2));
-      }
-      roundedRectPath(ctx, sx, sy, sw, sh, cr);
-      ctx.clip();
+      clipStickerPatch(ctx, sx, sy, sw, sh, cr, sticker.rot);
       ctx.drawImage(blurred, dx, dy, dw, dh);
       ctx.restore();
     }
@@ -485,8 +487,14 @@ export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, 
   // which happens inside the translated transform) is scaled by the outer
   // transform, exactly as the base image draw is. Export passes no view, so
   // effScale === scale there and the composite is unaffected.
+  // Blur and mosaic only — and built LAZILY because they are expensive: a
+  // full-size canvas plus a redraw of the whole image, every frame, for a document
+  // that is emoji-only (the shipped case), plus a `willReadFrequently` context,
+  // which forces a CPU-backed canvas. Measured before this: 2 canvases allocated
+  // and ~3.8 MB discarded per preview frame, none of it used.
+  const list = stickers ?? [];
   let base = baseCanvas;
-  if (!base) {
+  if (!base && list.some((s) => s.kind === 'blur' || s.kind === 'mosaic')) {
     const baseW = Math.round(px(1, imgW) * scale);
     const baseH = Math.round(px(1, imgH) * scale);
     base = document.createElement('canvas');
@@ -496,10 +504,10 @@ export function paint(ctx, { image, stickers, bitmaps, fallback, customBitmaps, 
     bctx.drawImage(image, 0, 0, base.width, base.height);
   }
 
-  const scratchCanvas = document.createElement('canvas');
-  const scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true });
+  const scratchCanvas = list.some((s) => s.kind === 'mosaic') ? document.createElement('canvas') : null;
+  const scratchCtx = scratchCanvas ? scratchCanvas.getContext('2d', { willReadFrequently: true }) : null;
 
-  for (const sticker of stickers ?? []) {
+  for (const sticker of list) {
     ctx.save();
     // ONE transform for the whole sticker, including blur/mosaic source
     // sampling: translate by the view pan, then scale by the view zoom about
