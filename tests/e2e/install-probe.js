@@ -69,15 +69,22 @@
     log('appleTouchIcon', ati && ati.getAttribute('href'));
 
     // The theme colour must equal what the app actually paints, or the installed splash and
-    // the first frame disagree and the launch flashes a different colour.
+    // the first frame disagree and the launch flashes a different colour. There are THREE
+    // declarations of it and they must all agree: the meta tag (browser chrome), the
+    // manifest's theme_color (the installed window) and its background_color (the splash).
+    // Checking only the meta tag left the manifest's two to the unit test, so a drift in
+    // either one kept this gate green — found by mutating it.
     const meta = document.querySelector('meta[name="theme-color"]');
     const bg = getComputedStyle(document.body).backgroundColor;
     const rgb = bg.match(/\d+/g);
     const hex = meta && rgb
       ? '#' + rgb.slice(0, 3).map((n) => (+n).toString(16).padStart(2, '0')).join('')
       : null;
-    r.themeColorMatchesAppBackground = !!meta && hex === meta.getAttribute('content').toLowerCase();
-    log('theme', { meta: meta && meta.getAttribute('content'), computed: hex });
+    const declared = [meta && meta.getAttribute('content'), m.theme_color, m.background_color]
+      .filter(Boolean)
+      .map((c) => String(c).toLowerCase());
+    r.themeColorMatchesAppBackground = declared.length === 3 && !!hex && declared.every((c) => c === hex);
+    log('theme', { declared, computed: hex });
   } catch (e) {
     r.errors.push(String((e && e.stack) || e));
   }

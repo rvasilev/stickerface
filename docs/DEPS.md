@@ -98,6 +98,18 @@ not 12/12; and "11 probes" understates the real count (26 probe files, 21 of the
 
 
 
+## Installable: still zero dependencies (M11)
+
+Nothing in M11 adds a runtime dependency. A web app manifest and its icons are platform
+features, not packages: `dependencies` stays empty and the app stays a static site with no
+build step.
+
+Dev tooling, one-off: **`rsvg-convert`** (Debian/Ubuntu: `librsvg2-bin`) rasterises
+`icons/*.svg` into the committed PNGs, via `scripts/make-icons.sh`, run by hand when the
+artwork changes. It is not a build step and adds no dependency to ship — the output is
+committed, exactly as `scripts/fetch-emoji.mjs` commits `js/emoji.js`. A machine without
+librsvg can still build and deploy the site; it just cannot regenerate icons.
+
 ## Rule for adding anything
 
 1. Does a platform API already do it? → use that.

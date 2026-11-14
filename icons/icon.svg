@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Colours are the app's own tokens in css/style.css (bg, border, text-dim, accent,
+       accent-contrast), not new ones. Keep them in step. Note: a CSS custom property
+       cannot be NAMED here — a double hyphen is illegal inside an XML comment. -->
+  <rect width="512" height="512" rx="96" fill="#14161a"/>
+  <!-- the photo -->
+  <rect x="88" y="112" width="336" height="288" rx="28" fill="#2e333c"/>
+  <!-- the face behind it -->
+  <circle cx="256" cy="228" r="50" fill="#9aa1ab"/>
+  <path d="M170 400c0-47 38-86 86-86s86 39 86 86z" fill="#9aa1ab"/>
+  <!-- the sticker that hides it -->
+  <g transform="rotate(-8 256 256)">
+    <rect x="180" y="180" width="152" height="152" rx="34" fill="#4f9cf9"/>
+    <circle cx="230" cy="238" r="13" fill="#0b1220"/>
+    <circle cx="282" cy="238" r="13" fill="#0b1220"/>
+    <path d="M228 282c17 13 39 13 56 0" stroke="#0b1220" stroke-width="13" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

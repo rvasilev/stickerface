@@ -227,6 +227,31 @@ because every projection does (node can unit-test it) and because CDP cannot car
 Two deliberate gaps, recorded in `docs/VERIFICATION.md`: no keyboard zoom (Ctrl +/-
 belongs to the browser) and no pan affordance on a middle-button-less trackpad.
 
+## Installable (M11)
+
+`manifest.json` plus committed PNG icons make the app installable. **No service worker is
+required for that**: Chromium dropped the fetch-handler requirement (Chrome 108 Android /
+112 desktop), so the install path is the manifest and its icons. iOS needs nothing at all —
+since iOS/iPadOS 26 any site added to the Home Screen opens as a web app. A worker is
+planned for the *offline* promise (M12), which is a different thing from being installable.
+
+Every URL in the manifest is **relative** (`"./"`, `"./icons/…"`). That is deliberate, not
+style: one file then works at the harness's server root *and* under `/stickerface/` on
+GitHub Pages, with no build-time rewrite. An absolute `/icons/…` would work locally and
+404 in production — green here, broken there.
+
+The icons are **committed artifacts**, generated once by `scripts/make-icons.sh` from the
+committed SVGs. That is the same arrangement as `js/emoji.js` and `scripts/fetch-emoji.mjs`:
+nothing is generated at deploy time and the repository stays buildless.
+
+Two invariants are asserted rather than trusted. `tests/manifest.test.js` reads each icon's
+real PNG header and compares it to the declared `sizes`, so a `sizes` that lies about the
+file fails the unit gate; and it asserts the manifest's `theme_color` *and*
+`background_color` equal the `--bg` the app paints — three declarations of one colour that
+must agree, or an installed launch flashes a colour the app is not. `install-probe.js`
+asserts the same agreement in the browser and adds the one fact page JS cannot see: whether
+the browser itself would install the app.
+
 ## Why this shape
 
 - **No bundler:** the app is ~1 500 lines; GitHub Pages serves the source directly.

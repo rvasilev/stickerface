@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>StickerFace — hide faces in photos, offline</title>
   <meta name="description" content="Hide faces in photos with an emoji sticker. Offline, no account, everything stays on your device.">
+  <!-- Installable, and offline: manifest.json + a root-scoped sw.js (js/pwa.js registers
+       it). Every URL here is RELATIVE, deliberately — the same file has to work at the
+       harness's server root and under /stickerface/ on GitHub Pages. See ARCHITECTURE.md. -->
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#14161a">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>

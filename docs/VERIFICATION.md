@@ -43,6 +43,7 @@ probe must never read as success).
 | `sticker-transform-probe.js` — two fingers whose centroid is inside the selected sticker's frame pinch-scale it (uniformly), twist-rotate it, and drag it — all in ONE undo step — while the photo does not pan; two fingers outside the frame still pan | 9 | green (2026-11-14) |
 | `handle-pinch-probe.js` — two fingers landing ON the `n`/`s` handles still scale the sticker (the window-level pump; the only probe that reaches it) | 6 | green (touch) |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
+| `install-probe.js` — the app is installable: the manifest is linked and parses, it carries the members the install surfaces read, every declared icon downloads and DECODES at the size it claims, the apple-touch-icon is 180×180, and all three theme-colour declarations match the colour the app paints | 7 (6 page-side + 1 from the harness) | green (2026-11-14) |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 | `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
@@ -113,6 +114,14 @@ returns nothing **without throwing**, so nothing else can catch it. The correct 
 `rc=1`, a green `2/2` main reader, and `=== FAILED: touch phase: no result at all ===`.
 It is a diagnostic, must NOT be wired into CI, and exists so a future change to the
 failure conditions starts from evidence rather than from the same wrong guess.
+
+**Post-probe CDP work needs its OWN connection.** Chrome 157 closes the harness's
+long-lived page socket once the probe phase ends: every attempt after it raises
+`ConnectionClosedOK` with code 1000, with no watchdog involved (`scripts/e2e.sh` kills
+nothing mid-run). Nobody noticed until now because nothing called CDP *after* the probe.
+Anyone adding such work — the installability check does, and the offline phase will — must
+use `send_fresh()` in `run.py`, which dials a fresh connection to the same page target. The
+old socket's `close_code` is printed on every installability run as evidence.
 
 ### Real input, not synthetic events
 

@@ -21,6 +21,20 @@ python3 -m http.server 8000      # file:// does NOT work (ES modules)
 # → http://localhost:8000
 ```
 
+## Install it
+
+StickerFace is installable — no store, no account, no download:
+
+- **Android, or desktop Chrome/Edge:** the install icon in the address bar, or the browser
+  menu → *Install*.
+- **iPhone / iPad / macOS Safari:** Share → *Add to Home Screen* (on iOS/iPadOS 26 and later
+  it opens as a web app straight away, with no further setup), or *Add to Dock* on the Mac.
+- **Firefox:** the menu's *Install* adds it as a shortcut.
+
+It then opens like any other app: its own icon, no browser chrome. The icon is
+`icons/icon.svg`, and the PNGs the install surfaces use are committed — regenerated only
+when the artwork changes (`scripts/make-icons.sh`).
+
 ## Features
 
 v1 manual placement (images only — video is not supported):

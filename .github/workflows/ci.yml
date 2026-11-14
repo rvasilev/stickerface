@@ -148,6 +148,16 @@ jobs:
           E2E_PROBE: tests/e2e/desktop-zoom-probe.js
         run: bash scripts/e2e.sh
 
+      # Installs via the manifest + committed icons (no service worker needed for that:
+      # Chrome dropped the fetch-handler requirement in 108/112). The gate's seventh
+      # criterion asks the BROWSER, over CDP, whether it would install the app — the rest
+      # are the page-side facts that make it so.
+      - name: Gate — the app is installable (manifest, icons, browser check)
+        env:
+          E2E_INSTALLABILITY: "1"
+          E2E_PROBE: tests/e2e/install-probe.js
+        run: bash scripts/e2e.sh
+
       - name: Gate — two-finger sticker transform (pinch, twist, drag) inside the frame
         env:
           E2E_MOBILE: "1"

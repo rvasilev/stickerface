@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Maskable variant: identical artwork, but the background BLEEDS to the edges and the
+       content is inset into the safe zone (80% centred), so Android's circular launcher
+       mask cannot clip the photo, the face or the sticker. The background must never be
+       rounded here — the launcher supplies the shape. -->
+  <rect width="512" height="512" fill="#14161a"/>
+  <g transform="translate(51.2 51.2) scale(0.8)">
+    <rect x="88" y="112" width="336" height="288" rx="28" fill="#2e333c"/>
+    <circle cx="256" cy="228" r="50" fill="#9aa1ab"/>
+    <path d="M170 400c0-47 38-86 86-86s86 39 86 86z" fill="#9aa1ab"/>
+    <g transform="rotate(-8 256 256)">
+      <rect x="180" y="180" width="152" height="152" rx="34" fill="#4f9cf9"/>
+      <circle cx="230" cy="238" r="13" fill="#0b1220"/>
+      <circle cx="282" cy="238" r="13" fill="#0b1220"/>
+      <path d="M228 282c17 13 39 13 56 0" stroke="#0b1220" stroke-width="13" fill="none" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

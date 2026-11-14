@@ -389,6 +389,22 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — M11: installable. `manifest.json` + committed icons. The gate
+  (`tests/e2e/install-probe.js`) was committed RED first — **0/7**, `rc=1`, and the
+  browser's own verdict `no-manifest` — then green after the wiring: **7/7** with
+  `installabilityErrors: []`. Its seventh criterion needed harness work and turned up three
+  real things. (1) This Chrome (157.0.8103.50) **closes the harness's long-lived page socket
+  once the probe phase ends** — code 1000, every attempt, no watchdog in `scripts/e2e.sh` —
+  so post-probe CDP work now dials its own connection via `send_fresh()`. That matters for
+  M12, whose offline phase also calls CDP after the probe. (2) The criterion **passed
+  vacuously** when the read failed: an empty payload read as "no installability errors".
+  A failed read is now an explicit failure. (3) As first written the colour criterion checked
+  only the `<meta>` tag, so mutating the manifest's `theme_color` kept the gate green at 7/7
+  — it now requires all three declarations to agree, and that same mutation takes it to 6/7
+  with exactly one criterion red. The unit gate caught the mutation in both versions. Unit
+  151 → 156. Icons verified by eye: the main one reads as "a sticker hiding a face in a
+  photo", and the maskable variant's artwork sits inside the safe radius with a full-bleed
+  square background.
 - **2026-11-14** — Phase 0 of the ui/logic split: the two characterisation criteria the
   adversarial panel proved were MISSING, written before anything is extracted. Both pin
   hazards that no probe reached, and each is proven by mutation.
