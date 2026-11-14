@@ -416,3 +416,66 @@ describe('Store — swapEmoji', () => {
     expect(types).not.toContain('change');
   });
 });
+
+describe('Store — a mutation during a live drag is its own undo step', () => {
+  it('undoes the delete first, then the drag — never in the other order', () => {
+    const { store } = makeStore();
+    const a = store.add({ cx: 0.5, cy: 0.5 });
+    store.add({ cx: 0.4, cy: 0.4 });
+    store.beginDrag(a.id);
+    store.move(a.id, { cx: 0.6 }); // the drag's own live preview: silent
+    store.remove(a.id); // a concurrent mutation while the drag is still live
+    expect(store.state.stickers.some((s) => s.id === a.id)).toBe(false);
+
+    // Undo #1 must undo the DELETE — so the sticker returns as the drag left it.
+    // A drag entry left on the stack ahead of it restores a snapshot taken before
+    // the delete ever happened (cx 0.5), which reads to the user as "one Ctrl+Z
+    // brought back a sticker I deleted".
+    store.undo();
+    const back = store.state.stickers.find((s) => s.id === a.id);
+    expect(back).toBeTruthy();
+    expect(back.cx).toBeCloseTo(0.6, 12);
+
+    // Undo #2 must undo the drag, and only the drag.
+    store.undo();
+    expect(store.state.stickers.find((s) => s.id === a.id).cx).toBeCloseTo(0.5, 12);
+    expect(store.state.stickers).toHaveLength(2);
+  });
+
+  it('a reorder mid-drag cannot fold the drag into the reorder entry', () => {
+    const { store } = makeStore();
+    const a = store.add({ cx: 0.5, cy: 0.5 });
+    const b = store.add({ cx: 0.4, cy: 0.4 });
+    store.beginDrag(b.id);
+    store.move(b.id, { cx: 0.45 });
+    store.raise(a.id); // pushes z to the top while the drag is live
+    expect(store.state.stickers.map((s) => s.id)).toEqual([b.id, a.id]);
+    store.undo();
+    expect(store.state.stickers.map((s) => s.id)).toEqual([a.id, b.id]);
+    expect(store.state.stickers.find((s) => s.id === b.id).cx).toBeCloseTo(0.45, 12);
+  });
+});
+
+describe('Store — the selection always names a sticker that exists', () => {
+  it('refuses a ghost id instead of storing it', () => {
+    const { store } = makeStore();
+    store.add({ cx: 0.5, cy: 0.5 });
+    store.select('ghost');
+    expect(store.state.selection).toBe(null);
+  });
+
+  it('clears a selection the new list no longer contains', () => {
+    const { store } = makeStore();
+    const a = store.add({ cx: 0.5, cy: 0.5 });
+    expect(store.state.selection).toBe(a.id);
+    store.setStickers([{ id: 'other', cx: 0.2, cy: 0.2, w: 0.1, h: 0.1, rot: 0, z: 1 }]);
+    expect(store.state.selection).toBe(null);
+  });
+
+  it('gives two stickers that arrive with the same id distinct ones', () => {
+    const { store } = makeStore();
+    store.setStickers([{ id: 'dup', cx: 0.2, cy: 0.2 }, { id: 'dup', cx: 0.6, cy: 0.6 }]);
+    const ids = store.state.stickers.map((s) => s.id);
+    expect(new Set(ids).size).toBe(2);
+  });
+});

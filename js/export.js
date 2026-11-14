@@ -58,22 +58,47 @@ export function maxCanvasPixels(ua) {
 }
 
 /**
+ * Per-side canvas limit, in px, for the current browser. An area cap alone is not
+ * enough: a wide photo can clear the area and still exceed the SIDE, so the
+ * allocation fails and the message blames the area. 8192x2048 is exactly at
+ * Safari's legacy area cap, so an area-only guard passes it through with a side of
+ * 8192 — twice the 4096 Safari will allocate. Non-Safari returns Infinity: Chrome
+ * allocates far larger sides, and inventing a cap there would refuse exports that
+ * work today.
+ * @param {string} [ua]
+ * @returns {number} maximum canvas side in px (Infinity when unconstrained)
+ */
+export function maxCanvasSide(ua) {
+  if (!isSafariUA(ua)) return Infinity;
+  if (isIOSUA(ua)) {
+    const v = iosMajorVersion(ua);
+    return Math.sqrt(v != null && v >= 18 ? SAFARI_MODERN_MAX_CANVAS_PIXELS : SAFARI_LEGACY_MAX_CANVAS_PIXELS);
+  }
+  return Math.sqrt(SAFARI_LEGACY_MAX_CANVAS_PIXELS);
+}
+
+/**
  * The size export.js actually composites at: the requested size, scaled down
- * only when its area exceeds `cap` (never upscaled, aspect preserved by one
- * linear factor). Pure so the boundary lives in unit tests.
+ * only when its area exceeds `cap` or its longer side exceeds `maxSide` (never
+ * upscaled, aspect preserved by one linear factor). Pure so the boundary lives in
+ * unit tests.
  * @param {number} W requested width px
  * @param {number} H requested height px
  * @param {number} [cap] maximum canvas area in px (default: the default cap)
+ * @param {number} [maxSide] maximum canvas side in px (default: unconstrained)
  * @returns {{w:number, h:number, scale:number, capped:boolean}} capped size,
  *   canvas px per natural px, and whether the size was reduced
  */
-export function exportSize(W, H, cap = DEFAULT_MAX_CANVAS_PIXELS) {
+export function exportSize(W, H, cap = DEFAULT_MAX_CANVAS_PIXELS, maxSide = Infinity) {
   const w = Number.isFinite(W) ? W : 0;
   const h = Number.isFinite(H) ? H : 0;
   const limit = Number.isFinite(cap) && cap > 0 ? cap : DEFAULT_MAX_CANVAS_PIXELS;
   const area = w * h;
-  if (area <= limit || area <= 0) return { w: Math.round(w), h: Math.round(h), scale: 1, capped: false };
-  const scale = Math.sqrt(limit / area);
+  if (area <= 0) return { w: Math.round(w), h: Math.round(h), scale: 1, capped: false };
+  let scale = area > limit ? Math.sqrt(limit / area) : 1;
+  const side = Math.max(w, h);
+  if (Number.isFinite(maxSide) && maxSide > 0 && side * scale > maxSide) scale = maxSide / side;
+  if (scale >= 1) return { w: Math.round(w), h: Math.round(h), scale: 1, capped: false };
   const cw = Math.max(1, Math.floor(w * scale));
   const ch = Math.max(1, Math.floor(h * scale));
   return { w: cw, h: ch, scale: cw / w, capped: true };
@@ -86,6 +111,16 @@ function currentMaxCanvasPixels() {
     return maxCanvasPixels(ua);
   } catch {
     return DEFAULT_MAX_CANVAS_PIXELS;
+  }
+}
+
+/** The per-side cap for the browser running this page, same DOM touch as above. */
+function currentMaxCanvasSide() {
+  try {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+    return maxCanvasSide(ua);
+  } catch {
+    return Infinity;
   }
 }
 
@@ -106,7 +141,7 @@ function compositeCanvas(state, bitmaps, customBitmaps, fallback) {
   const H = image.naturalHeight;
   if (!W || !H) throw new Error('Image has no natural size');
 
-  const size = exportSize(W, H, currentMaxCanvasPixels());
+  const size = exportSize(W, H, currentMaxCanvasPixels(), currentMaxCanvasSide());
   const canvas = document.createElement('canvas');
   canvas.width = size.w;
   canvas.height = size.h;

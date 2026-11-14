@@ -86,7 +86,12 @@ painted into it, so it never appears in the export.
 `compositeCanvas()` builds a fresh canvas at `naturalWidth × naturalHeight` when the
 browser can allocate it, and at the largest capped size that fits when it cannot
 (Safari's canvas-area limit is 16.7M px before iOS 18 and 67.1M px after; everything else
-is assumed to be 268M). It paints base + stickers at the composite's own scale — the
+is assumed to be 268M). **The cap is two limits, not one: area AND per-side.** An area
+cap alone lets a wide photo through — 8192×2048 sits exactly on the legacy area cap and
+is still 8192 px wide, twice what Safari will allocate — so `exportSize` takes a
+`maxSide` as well (`maxCanvasSide()`, unconstrained off Safari: inventing a cap there
+would refuse exports that work today). It paints base + stickers at the composite's own
+scale — the
 geometry is normalized, so a reduced export places stickers identically, just at lower
 resolution — and reports what it did (`compositeSize`, `cappedExportNote()`) so the UI can
 say it. Because the image is re-encoded through a canvas, **EXIF/GPS metadata is dropped** —

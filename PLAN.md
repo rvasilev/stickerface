@@ -389,6 +389,19 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — round-2 audit: four correctness fixes, each with a regression test
+  that was proven able to fail (all six fixes reverted in a throwaway copy → 8 of the
+  new tests red). **Store:** a structural mutation during a live drag now settles the
+  drag first, so undo order is delete-then-drag instead of one Ctrl+Z restoring a
+  snapshot taken before the delete (it resurrected the sticker and reverted the drag);
+  `select()` refuses a ghost id, `setStickers` drops a stale selection and can no longer
+  mint duplicate ids that `add()` already guarded. **Export:** `exportSize` gained the
+  per-side cap an area cap cannot express. **UI:** pad hold buttons capture the pointer,
+  so a hold released off the button stops instead of repeating for the life of the page
+  with `commitDrag` never running; the pad's minimum size now uses `MIN_STICKER_PX`
+  (natural px) instead of a second rule in preview px that disagreed by the view scale.
+  Also fixed the startup message that claimed failed-bitmap stickers "will export as a
+  shaded block" when the `<img>` fallback draws them correctly.
 - **2026-11-14** — first-run coach mark (M10), the last item from
   `mobile-ux-perf-brainstorm.md`'s ranked list and the answer to the gap M9 left:
   the mode pair is discoverable only if the user notices the row. The first photo now

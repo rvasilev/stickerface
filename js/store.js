@@ -78,23 +78,44 @@ export class Store {
     this._emit({ type: 'change' });
   }
 
+  /**
+   * A live drag holds a `before` snapshot taken at pointerdown. Any OTHER
+   * mutation must land before that snapshot is folded into an undo entry, or the
+   * entry's `undo` restores a state the other mutation never saw: beginDrag →
+   * delete → commitDrag pushes an entry whose undo RESURRECTS the deleted
+   * sticker, and a Ctrl+Z mid-drag is silently absorbed. Settling the drag first
+   * makes each change its own undo step.
+   */
+  _settleDrag() {
+    if (this._drag) this.commitDrag();
+  }
+
   /** Replace the whole sticker list (used by "apply layout to next photo"). */
   setStickers(stickers) {
+    this._settleDrag();
     const before = this._snapshot();
     const list = (stickers ?? []).map(clone);
+    const seen = new Set();
     // z is owned by the store, not the caller: a carried layout arrives with the
     // previous photo's z values, and duplicates there would let paint order and
-    // array order disagree.
+    // array order disagree. Ids are owned here too — `add` reassigns a colliding
+    // id, so a bulk replace must not be the one path that lets two stickers share
+    // one.
     list.forEach((s, i) => {
       s.z = i + 1;
+      if (seen.has(s.id)) s.id = uid();
+      seen.add(s.id);
     });
     this.state.stickers = list;
+    // The selection is a claim about this list, so it cannot survive a replace.
+    if (this.state.selection && !this._find(this.state.selection)) this.state.selection = null;
     const after = this._snapshot();
     this._push({ undo: () => this._restore(before), redo: () => this._restore(after) });
     this._emit({ type: 'change' });
   }
 
   add(sticker) {
+    this._settleDrag();
     const before = this._snapshot();
     // z must stay unique and in array order to match moveTo's renumbering:
     // after a delete, `length + 1` can collide with an existing sticker.
@@ -166,6 +187,7 @@ export class Store {
    * undo entry behind.
    */
   swapEmoji(id, src) {
+    this._settleDrag();
     const st = this._find(id);
     if (!st || st.kind !== 'emoji' || typeof src !== 'string' || !src || st.src === src) return false;
     const before = this._snapshot();
@@ -205,6 +227,7 @@ export class Store {
   }
 
   remove(id) {
+    this._settleDrag();
     const index = this.state.stickers.findIndex((s) => s.id === id);
     if (index < 0) return;
     const before = this._snapshot();
@@ -227,6 +250,7 @@ export class Store {
 
   /** Move a sticker to an array position (0 = bottom). One undo entry. */
   moveTo(id, index) {
+    this._settleDrag();
     const from = this.state.stickers.findIndex((s) => s.id === id);
     if (from < 0) return;
     const to = Math.max(0, Math.min(this.state.stickers.length - 1, index));
@@ -243,8 +267,12 @@ export class Store {
   }
 
   select(id) {
-    this.state.selection = id ?? null;
-    this._emit({ type: 'select', id: this.state.selection });
+    // A selection must name a sticker that exists: the frame, the pad and the
+    // layer highlight all read it, and a ghost id gives all three nothing to
+    // address. Refusing here is the one place that can't be bypassed.
+    const next = id && this._find(id) ? id : null;
+    this.state.selection = next;
+    this._emit({ type: 'select', id: next });
   }
 
   setTool(tool) {

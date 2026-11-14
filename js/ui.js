@@ -22,6 +22,7 @@ import {
   clampStickerScale,
   snapAngle,
   nudge,
+  MIN_STICKER_PX,
   clampViewScale,
   focalZoomView,
   wheelZoomFactor,
@@ -133,8 +134,11 @@ export class CanvasApp {
     this.fallback = fallback ?? new Map();
     this.onStateChange();
     if (!ready) {
+      // `ready` counts BITMAPS. A sticker whose bitmap failed still draws the real
+      // artwork from the <img> fallback, so this must not promise a shaded block —
+      // the fallback covers everything except the doubly-failed case.
       this.setExportStatus(
-        `Some emoji failed to rasterize (${loaded}/${total} decoded) — affected stickers will export as a shaded block so nothing is left uncovered.`,
+        `Some emoji failed to rasterize (${loaded}/${total} decoded) — affected stickers fall back to the original artwork, or to a shaded block if that fails too.`,
       );
     }
   }
@@ -1572,7 +1576,11 @@ export class CanvasApp {
   _scaleSelected(k) {
     const st = this._selectedSticker();
     if (!st || !this.image) return;
-    const minW = 8 / this.scale / this.image.naturalWidth;
+    // The SAME floor a pinch uses (natural px), not a second rule in preview px:
+    // the two differed by the view scale, so the pad could shrink a sticker far
+    // below what a pinch cannot, or refuse to reach it. Every emoji is square, so
+    // flooring w floors the shorter side, which is what the pinch clamp bounds.
+    const minW = MIN_STICKER_PX / this.image.naturalWidth;
     const w = Math.max(minW, st.w * k);
     const f = w / st.w;
     this.store.move(st.id, { w, h: st.h * f });
@@ -1600,11 +1608,20 @@ export class CanvasApp {
       const st = this._selectedSticker();
       if (!st) return;
       ev.preventDefault();
+      // Capture the pointer, or a hold released OFF the button never reaches
+      // `stop`: the interval then repeats for the life of the page and
+      // commitDrag never runs, so the whole hold is runaway AND un-undoable.
+      // Best-effort — a mouse with no capture support still works through the
+      // button's own listeners below.
+      try { btn.setPointerCapture(ev.pointerId); } catch { /* no capture available */ }
       heldId = st.id;
       this.store.beginDrag(st.id);
       apply();
       btn.addEventListener('pointerup', stop);
       btn.addEventListener('pointercancel', stop);
+      // Capture can be lost without a pointerup (another element takes it, the
+      // window blurs). `stop` is idempotent, so this can only ever help.
+      btn.addEventListener('lostpointercapture', stop);
       delayTimer = setTimeout(() => {
         repeatTimer = setInterval(() => {
           // The selection can change mid-hold; never keep editing a

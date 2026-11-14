@@ -357,12 +357,16 @@ export function focalZoomView(startView, focalStart, focalNow, startDist, curren
  *  successive positions keeps a sweep across ±PI continuous and lets a sweep past
  *  half a turn follow the hand, whereas subtracting the grab angle from the
  *  current one would read any long sweep as its short way round.
+ *
+ *  Modulo, not a while-loop: a loop bounded by the delta itself spins about
+ *  delta/2π times, which for a large finite input is a hang rather than a return.
  *  @param {number} from @param {number} to @returns {number} radians in (-PI, PI] */
 export function angleDelta(from, to) {
-  let d = finite(to, 0) - finite(from, 0);
-  while (d <= -Math.PI) d += 2 * Math.PI;
-  while (d > Math.PI) d -= 2 * Math.PI;
-  return d;
+  const d = finite(to, 0) - finite(from, 0);
+  let out = d % (2 * Math.PI);
+  if (out <= -Math.PI) out += 2 * Math.PI;
+  else if (out > Math.PI) out -= 2 * Math.PI;
+  return out;
 }
 
 /** Round an angle to the nearest `step` — the 15° rotate snap. ONE definition of

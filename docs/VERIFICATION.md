@@ -38,7 +38,7 @@ probe must never read as success).
 | `selection-probe.js` — the frame wraps the drawn sticker, before and after a real handle drag | 8 | green |
 | `delete-probe.js` — double-click removes the topmost sticker, one undo step, empty-canvas no-op | 8 | green |
 | `handles-probe.js` — markers are small, the hit area stays finger-sized, alignment kept | 5 | green (touch) |
-| `mobile-probe.js` — one finger = sticker ops, two fingers = pan, second finger cancels a drag, double-tap deletes | 12 | green |
+| `mobile-probe.js` — one finger = sticker ops, two fingers = pan, double-tap deletes | 11 | green |
 | `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag, and the contact count returns to zero | 8 | green |
 | `sticker-transform-probe.js` — two fingers whose centroid is inside the selected sticker's frame pinch-scale it (uniformly), twist-rotate it, and drag it — all in ONE undo step — while the photo does not pan; two fingers outside the frame still pan | 9 | green (2026-11-14) |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
@@ -334,7 +334,7 @@ rather than letting "no change" read as success.
   `handles-probe` run, and so does deleting the `_activeHandlePointerId` guard that stops
   the release net stealing a handle's pointer.
 - **The 2 → 1 finger transition.** Removing the `_pan = null` reset applied when one finger
-  of a pinch lifts **survives** `mobile-probe` (12/12) and `zoom-probe` (9/9): neither
+  of a pinch lifts **survives** `mobile-probe` (11/11) and `zoom-probe` (9/9): neither
   gate pinches and then lifts a finger while checking that the remaining finger does not
   jump. The same harness shows both gates *do* catch a corrupted fit-pan (7/12 vs 12/12),
   so this is a coverage hole, not a dead gate.

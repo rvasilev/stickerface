@@ -659,3 +659,41 @@ describe('wheelZoomFactor', () => {
     expect(wheelZoomFactor(10000)).toBeGreaterThan(0);
   });
 });
+
+describe('angleDelta — bounded work, whatever the input', () => {
+  it('returns the shortest signed delta for ordinary angles', () => {
+    expect(angleDelta(0, Math.PI / 2)).toBeCloseTo(Math.PI / 2, 12);
+    expect(angleDelta(0, -Math.PI / 2)).toBeCloseTo(-Math.PI / 2, 12);
+    // Across the ±PI seam: continuous, not the long way round.
+    expect(angleDelta(3, -3)).toBeCloseTo(2 * Math.PI - 6, 12);
+  });
+
+  it('stays inside (-PI, PI] at the boundary and for a wrap of exactly half a turn', () => {
+    for (const d of [Math.PI, -Math.PI, 3 * Math.PI, -3 * Math.PI]) {
+      const out = angleDelta(0, d);
+      expect(out).toBeGreaterThan(-Math.PI);
+      expect(out).toBeLessThanOrEqual(Math.PI);
+    }
+  });
+
+  it('does not loop once per two pi of input — a million radians returns at once', () => {
+    // The while-loop form spun delta/2pi times: ~1.6e8 iterations here, which is a
+    // hang rather than a return. Bound the work, not the answer.
+    const t0 = performance.now();
+    for (const d of [1e6, -1e6, 1e9, -1e9, 123456.789]) {
+      const out = angleDelta(0, d);
+      expect(Number.isFinite(out)).toBe(true);
+      expect(out).toBeGreaterThan(-Math.PI);
+      expect(out).toBeLessThanOrEqual(Math.PI);
+    }
+    expect(performance.now() - t0).toBeLessThan(50);
+  });
+
+  it('treats non-finite input as 0 rather than looping on it', () => {
+    for (const v of [NaN, Infinity, -Infinity, undefined, null]) {
+      const out = angleDelta(0, v);
+      expect(Number.isFinite(out)).toBe(true);
+      expect(out).toBe(0);
+    }
+  });
+});

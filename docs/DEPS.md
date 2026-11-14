@@ -63,6 +63,41 @@ WASM adds a JS↔WASM copy plus module load for negative gain.
   pre-decoded `ImageBitmap`s for emoji, `requestAnimationFrame`-coalesced redraws.
   All four are already in the build.
 
+## Round-2 module review (2026-11-14)
+
+Re-asked, against the surface as it exists now rather than the four planned features.
+Facts fetched live from the registry (not recalled); sizes are unpacked unless stated.
+
+**Verdict: no runtime module. The one candidate is dev-only, and it is the harness.**
+
+| component | verdict | why |
+|---|---|---|
+| `tests/e2e/run.py` + `scripts/e2e.sh` (523 + 171 lines, hand-rolled CDP) | **the one real candidate** — `@playwright/test`, **dev-only** | It is the only component here that a maintained library clearly does better, and the repo has already paid the cost of that twice: the pad needed a `hold` step and the zoom work needed a `wheel` step plus middle-button support, because the driver hardcoded the left button and could not send a wheel at all. WebKit also closes a gap already written down in `docs/VERIFICATION.md` (`ctx.filter` blur on Safari < 18 is untested because the harness is Chromium-only). |
+| pointer/gesture router (`ui.js`) | keep | Bespoke by necessity: it publishes a documented measurement contract (`dataset.pointers`) that three gates read, and it implements the implicit-capture workaround a DOM library would not know about. A library swap invalidates those gates and re-earns a solved bug. |
+| undo/redo store (`store.js`) | keep | ~40 lines of command pattern with a cap, drag coalescing and an undo-invariant test surface. A state library would replace explicit, tested code with a dependency to configure. |
+| layer drag-reorder (`ui.js` + `<details>`) | keep | `sortablejs` is MIT and widely used but mutates real DOM nodes while the list is rebuilt with `replaceChildren()`, and it ships no keyboard/ARIA model — so the accessible path stays bespoke either way. See the survey's three reasons. |
+| canvas view zoom/pan | keep | `@panzoom/panzoom` applies a CSS transform to an element, which is a *second* projection beside invariant 6's single one. Wrong on architecture, not quality. |
+| emoji pipeline (`emoji.js`, `render.js`) | keep | A generated manifest plus `createImageBitmap` with an `<img>` fallback for viewBox-only SVGs. Nothing to adopt; the fallback exists because of a platform quirk, not a missing library. |
+
+`@playwright/test` at a glance (live, 2026-11-14): **1.65.1**, **Apache-2.0**, **1 runtime
+dependency**, ~28.5 KB unpacked for the test runner, **129.6 M weekly downloads**,
+published 2026-11-13 — and it downloads **no browser** on install, so invariant 3
+(no runtime dependencies) is untouched by construction. Browsers are a separate
+`npx playwright install`; this box already has a cache under `~/.cache/ms-playwright`.
+
+**Decision gate, not a change:** migrating 26 probes and the launcher is a real cost,
+and the hand-rolled harness exists because of this box's constraints, not the product's.
+Recorded in `PLAN.md` as Phase 6 and in the survey. Do not start it inside a feature
+commit.
+
+**Corrections to [[npm-module-survey]] (it is dated the same day but was written before
+these fetches):** the Playwright cache path it cites (`/usr/local/share/playwright/…-1208`)
+does not exist — the real one is `~/.cache/ms-playwright` (3.2 GB); `@panzoom/panzoom`'s
+last publish is 2026-04-02, not "~3 months before 2026-11-14"; the touch gate is **11/11**,
+not 12/12; and "11 probes" understates the real count (26 probe files, 21 of them gates).
+
+
+
 ## Rule for adding anything
 
 1. Does a platform API already do it? → use that.

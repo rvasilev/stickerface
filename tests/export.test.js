@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   maxCanvasPixels,
+  maxCanvasSide,
   exportSize,
   degradedStickerCount,
   DEFAULT_MAX_CANVAS_PIXELS,
@@ -135,5 +136,37 @@ describe('degradedStickerCount — only stickers with no drawable asset count', 
     const state = { stickers: [emojiSticker, missingSticker, blurSticker] };
     const fallback = new Map([['assets/emoji/1f600.svg', { width: 1, height: 1 }]]);
     expect(degradedStickerCount(state, new Map(), new Map(), fallback)).toBe(1);
+  });
+});
+
+describe('maxCanvasSide — the per-side limit an area cap cannot express', () => {
+  const SAFARI_IOS17 = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+  const SAFARI_IOS18 = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
+  const CHROME = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36';
+
+  it('is 4096 before iOS 18, 8192 after, and unconstrained off Safari', () => {
+    expect(maxCanvasSide(SAFARI_IOS17)).toBe(4096);
+    expect(maxCanvasSide(SAFARI_IOS18)).toBe(8192);
+    expect(maxCanvasSide(CHROME)).toBe(Infinity);
+  });
+
+  it('caps a side the area cap lets through (8192x2048 is exactly the legacy area cap)', () => {
+    // Area alone says "fits" — and Safari then refuses to allocate 8192 wide.
+    expect(exportSize(8192, 2048).capped).toBe(false); // area-only default: unchanged
+    const capped = exportSize(8192, 2048, 16777216, 4096);
+    expect(capped.capped).toBe(true);
+    expect(Math.max(capped.w, capped.h)).toBeLessThanOrEqual(4096);
+  });
+
+  it('caps BOTH when the area cap already shrank the image below a legal side', () => {
+    // 5000x4000: area 20 Mpx -> 4579x3663, whose side is still over 4096.
+    const both = exportSize(5000, 4000, 16777216, 4096);
+    expect(both.capped).toBe(true);
+    expect(Math.max(both.w, both.h)).toBeLessThanOrEqual(4096);
+    expect(both.w / both.h).toBeCloseTo(5000 / 4000, 2); // aspect survives
+  });
+
+  it('never upscales a small image to reach a side limit', () => {
+    expect(exportSize(800, 600, 16777216, 4096)).toEqual({ w: 800, h: 600, scale: 1, capped: false });
   });
 });
