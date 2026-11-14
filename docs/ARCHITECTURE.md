@@ -8,16 +8,17 @@ else is imported from there.
 index.html              markup only: toolbar, stage, canvas, right panel, About
 css/style.css           all styling; no external fonts
 js/ui.js                entry (index.html loads this): CanvasApp — DOM wiring,
-                         pointer state machine, selection chrome (8 resize
-                         handles + rotate handle, reachable only in Resize mode),
-                         the selected-sticker pad with its Move/Resize row and the
-                         hint text that follows the mode, the first-run coach mark
-                         (COACH_TEXT, device-appropriate, shown once per browser via
-                         localStorage), the layers section (`<details>`/`<summary>`)
+                         pointer state machine, selection chrome (ONE resize handle
+                         + ONE rotate dot + a decorative move mark, because the body
+                         is the move handle; there is no mode — `_syncChrome` stands
+                         the chrome down below FRAME_MIN_CHROME_PX and the hint text
+                         follows that), the selected-sticker pad, the first-run coach
+                         mark (COACH_TEXT, device-appropriate, shown once per browser
+                         via localStorage), the layers section (`<details>`/`<summary>`)
                          and the row drag grip.
-                         `editMode` is view state beside `view`/`_pan`: it is never
-                         in the store, so switching it cannot touch geometry, the
-                         selection or the undo stack
+                         `_chromeSmall` is view state beside `view`/`_pan`: it is
+                         never in the store, so crossing the threshold cannot touch
+                         geometry, the selection or the undo stack
 js/store.js             Store: state + command-pattern undo/redo + subscribe().
                          `moveTo(id, index)` is the one reorder path — 0 = bottom —
                          and the row buttons, `[`/`]` and the grip drag all ride it
@@ -78,8 +79,13 @@ Per sticker, in `z` order:
 - **mosaic** — `getImageData` the region, average each `strength * scale` block,
   write back with `imageSmoothingEnabled = false`.
 
-Selection chrome (handles) is **DOM**, positioned over the canvas by JS — not
-painted into it, so it never appears in the export.
+Selection chrome is **DOM**, positioned over the canvas by JS — not painted into it,
+so it never appears in the export. It is the SE resize handle, the rotate dot above
+the top edge, and a decorative move mark at the centre (`pointer-events: none`): the
+sticker's body is the move handle, so there is no mode to switch into. `_syncChrome`
+hides all of it below `FRAME_MIN_CHROME_PX` (36 CSS px) — the size at which the
+handle's own 32 px hit area would reach the frame's centre and block the drag — and
+never flips it while a drag is open.
 
 ## Export
 

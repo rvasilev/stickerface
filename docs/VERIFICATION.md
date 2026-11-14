@@ -37,18 +37,18 @@ probe must never read as success).
 | `photo-boundary-probe.js` — a new photo starts clean, the carry-over is explicit and one undo step | 9 | green |
 | `selection-probe.js` — the frame wraps the drawn sticker, before and after a real handle drag | 8 | green |
 | `delete-probe.js` — double-click removes the topmost sticker, one undo step, empty-canvas no-op | 8 | green |
-| `handles-probe.js` — markers are small, the hit area stays finger-sized, alignment kept | 5 | green (touch) |
+| `handles-probe.js` — markers are small, the hit area stays finger-sized, alignment kept, and the chrome is exactly two handles (one resize + one rotate) | 5 | green (touch) |
 | `mobile-probe.js` — one finger = sticker ops, two fingers = pan, double-tap deletes, and a one-finger drag released on empty canvas does NOT place | 12 | green |
 | `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag, and the contact count returns to zero | 8 | green |
 | `sticker-transform-probe.js` — two fingers whose centroid is inside the selected sticker's frame pinch-scale it (uniformly), twist-rotate it, and drag it — all in ONE undo step — while the photo does not pan; two fingers outside the frame still pan | 9 | green (2026-11-14) |
-| `handle-pinch-probe.js` — two fingers landing ON the `n`/`s` handles still scale the sticker (the window-level pump; the only probe that reaches it) | 6 | green (touch) |
+| `handle-pinch-probe.js` — two fingers landing ON the handles (the rotate dot and the SE corner) still scale the sticker (the window-level pump; the only probe that reaches it) | 6 | green (touch) |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 | `install-probe.js` — the app is installable: the manifest is linked and parses, it carries the members the install surfaces read, every declared icon downloads and DECODES at the size it claims, the apple-touch-icon is 180×180, and all three theme-colour declarations match the colour the app paints | 7 (6 page-side + 1 from the harness) | green (2026-11-14) |
 | `offline-probe.js` — with the origin server stopped: the worker is genuinely offline (asserted on the worker, not just the page), it serves the shell from its own cache, all 76 emoji are precached, the stale `sf-v0` is gone, a seeded neighbour's cache is untouched, a first install offers no update bar, a sticker is placed and exported, and every request stayed same-origin | 12 (11 page-side + 1 from the harness) | green (2026-11-14) |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 | `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
-| `mode-probe.js` — Move/Resize modes: the mode row appears with a selection, Move hides all nine handles and the rotate stem (COMPUTED display, never the attribute — the handle rule sets `pointer-events`, so one that still rendered would swallow presses), Resize reveals them, a sticker shrunk to 22 CSS px drags directly in Move mode (the pad probe's blocking-band trick), a corner drag translates without resizing or rotating, a hidden handle refuses a real press, and a mode switch is view state (no undo entry, no geometry change) | 10 | green (2026-11-14) |
+| `three-handle-probe.js` — the selected sticker's chrome: exactly one resize handle and one rotate dot with NO mode control in the DOM, out as soon as a sticker is selected (no mode switch made anywhere in the probe), the move mark renders but is not a hit target (`elementFromPoint` at its centre is the canvas), a real SE-handle drag resizes it in one undo step, the chrome stands down below 36 CSS px with the hint naming the pad, a 22 px sticker still drags by its body (one undo step, no resize, no rotation), the pad's size button brings the handles back, and the cursor over a sticker reads `move` | 11 | green (2026-11-14) |
 | `coach-probe.js` — the first-run coach mark: hidden before any photo, shown on the first one, wording follows the INPUT DEVICE (a mouse user must not be told about fingers), the card's own centre is not a hit target, a real press through the card reaches the canvas AND dismisses it, the button is on screen at ≥32 px and owns its own centre, either dismissal path persists, a later photo does not show it again, and the button's press does not leak through to the canvas | 9 | green (2026-11-14) — desktop and touch runs both green (the touch run is where the wording variant is actually exercised) |
 | `emoji-swap-probe.js` — the picker EDITS the selected sticker: the artwork and the painted pixel change in place, geometry and z do not, it is one undo step, the layer row's visible name follows, the highlight follows the selection, and with nothing selected the click only arms the drop | 7 | green (2026-11-14) |
 | `desktop-zoom-probe.js` — the mouse wheel zooms the photo about the cursor (plain and Ctrl/Cmd, with the BROWSER not zooming), the frame and the canvas both follow, the page does not scroll, export is untouched, and a middle-button drag pans 1:1 and clamps rather than running away | 10 | green (2026-11-14) |
@@ -72,12 +72,15 @@ own colour threshold was wrong; see the trap list).
 
 `diag-small-sticker-probe.js` sweeps the selected box down through a series of
 on-screen sizes and reports, at each one, what a press at the sticker's centre
-would hit. Measured 2026-11-14: **free at 36 CSS px, blocked at 30** — at and below
-~32 px the 8 handles' hit areas (12 px marker + a 10 px `::before` inset) cover the
-entire interior, so the centre press lands on `handle:w` and the sticker cannot be
-moved. The transition brackets the predicted threshold (the edge handle's 32 px box
-reaches the centre when the box is ≤ 32 px). This is the measurement behind the
-selected-sticker pad (M8); `pad-probe.js` is the gate that now covers it.
+would hit. Measured 2026-11-14 against the 8-handle ring: **free at 36 CSS px,
+blocked at 30** — at and below ~32 px the handles' hit areas (12 px marker + a 10 px
+`::before` inset) covered the entire interior, so the centre press landed on
+`handle:w` and the sticker could not be moved. That measurement is what the M8 pad
+answered with arrows, and (M13, three-handle chrome) what the app now answers with
+geometry: one SE handle reaches the centre at **≤ 32 px**, so `FRAME_MIN_CHROME_PX`
+is 36 and the chrome stands itself down below it. `three-handle-probe.js` is the gate
+that covers the threshold in both directions (down at 22 px, back at 63 px);
+`pad-probe.js` covers the pad that takes over there.
 
 ```bash
 E2E_MOBILE=1 E2E_PROBE=tests/e2e/diag-mobile-metrics-probe.js npm run e2e   # device numbers
@@ -288,6 +291,10 @@ rather than letting "no change" read as success.
   revert the app files and re-run.** Kept as permanent evidence: the resolver now
   records what `elementFromPoint` returns at each endpoint, so "the drag did
   nothing" is attributable in one run instead of five.
+- **A threshold that hides chrome has to be gated in both directions.** A one-way
+  criterion ("the handles are hidden at 22 px") passes against an implementation that
+  never brings them back — three-handle-probe asserts the down AND the return (the pad
+  grows the sticker to 63 px) and is guarded on each crossing having actually happened.
 - **A closed `<details>` does not zero its child's rect.** Chromium hides the content
   with `::details-content { content-visibility: hidden }`, so `#layer-list` kept a
   142px bounding rect and read as "visible" while the section was collapsed. Measure

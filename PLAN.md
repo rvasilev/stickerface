@@ -112,14 +112,27 @@ Per sticker, in `z` order:
 
 ### Overlay (selection chrome)
 
-The 8 resize handles and the rotate handle are **DOM elements**, positioned over
-the canvas in CSS pixels and rotated by a CSS transform about the sticker centre —
-never painted into the canvas, so they cannot appear in an export. The projection
-is `cssPoint = canvasRect.origin + backingPoint * previewScale` using **one**
-scale factor and the canvas's own bounding rect (do not mix in the stage's
-offset, and never apply the scale twice). The frame must wrap the sticker that is
-actually drawn: the gate re-measures the emoji's pixels in the preview canvas and
+The chrome is **two interactive handles plus one signpost**: the SE corner
+(`data-handle="se"`) resizes, the dot 22 px above the top edge rotates, and a
+`pointer-events: none` **move mark** sits at the centre because the sticker's BODY is
+the move handle. All three are **DOM elements**, positioned over the canvas in CSS
+pixels and rotated by a CSS transform about the sticker centre — never painted into
+the canvas, so they cannot appear in an export. The projection is
+`cssPoint = canvasRect.origin + backingPoint * previewScale` using **one** scale
+factor and the canvas's own bounding rect (do not mix in the stage's offset, and
+never apply the scale twice). The frame must wrap the sticker that is actually
+drawn: the gate re-measures the emoji's pixels in the preview canvas and
 compares (`frameMatchesStickerOnScreen`).
+
+**There is no mode.** Where a press lands decides what it does — corner resizes, dot
+rotates, anywhere inside the frame drags — which is a region affordance rather than a
+modal one, and it removes a control the user had to notice. The chrome steps aside
+**by measurement** instead: below `FRAME_MIN_CHROME_PX` (36 CSS px, the measured
+free-at-36 / blocked-at-30 boundary where a 32 px hit area reaches the frame's centre)
+both handles and the move mark are hidden and the stage hint points at the panel's
+pad, so a tiny sticker keeps the body drag. The flip is applied on the frame after a
+drag ends, never mid-gesture: removing the element under a captured pointer is how a
+pointer changes target.
 
 ### Touch / mobile gesture model (decided 2026-11-13)
 
@@ -300,9 +313,9 @@ the pixel scale factor → `canvas.toBlob(mime, quality)` → download as
 |---|---|
 | Add sticker | click on canvas with a tool active (emoji / blur / mosaic) |
 | Select | click a sticker |
-| Move | drag body; arrows nudge 1 **preview** px (Shift = 10 preview px), converted to natural px |
-| Resize | 8 handles; corners keep ratio, `Shift` frees it |
-| Rotate | handle above top-centre; snap to 15° with `Shift` |
+| Move | drag anywhere on the sticker's body (the body IS the handle); arrows nudge 1 **preview** px (Shift = 10 preview px), converted to natural px |
+| Resize | the SE corner handle; aspect kept, `Shift` frees it. Hidden below 36 CSS px (use the pad) |
+| Rotate | the dot above top-centre; snap to 15° with `Shift`. Hidden below 36 CSS px (use two-finger twist) |
 | Delete | `Delete`/`Backspace`, the layer-list ✕, **or double-click / double-tap the sticker** |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z`, toolbar buttons |
 | Bring forward / back | `[` / `]` |
@@ -378,8 +391,13 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 9/9, M5 gate still green | **done** (2026-11-14) |
 | **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **done** (2026-11-14, three delegated rounds) |
 | **M8** | selected-sticker pad: nudge arrows + a 1 px/10 px step + size −/+, so a sticker too small to grab can still be moved and resized | `tests/e2e/pad-probe.js` = 7/7, every M1–M7 gate green | **done** (2026-11-14, delegated; the gate itself corrected once) |
-| **M9** | Move/Resize modes: what a press on the selected sticker DOES is explicit, chosen from the pad's mode row — so the 8 resize handles and the rotate handle are Resize-mode chrome, not always-on | `tests/e2e/mode-probe.js` = 10/10, every M1–M8 gate green | **done** (2026-11-14) |
+| **M9** | Move/Resize modes: what a press on the selected sticker DOES is explicit, chosen from the pad's mode row — so the 8 resize handles and the rotate handle are Resize-mode chrome, not always-on | `tests/e2e/mode-probe.js` = 10/10, every M1–M8 gate green | **done** (2026-11-14) — **superseded by M13** |
 | **M10** | first-run coach mark: the first photo explains the gesture model (and names the Move/Resize row) once per browser — device-appropriate wording, dismissible by its button or by simply starting to use the canvas, and never repeated | `tests/e2e/coach-probe.js` = 9/9, every M1–M9 gate green | **done** (2026-11-14) |
+
+M11 (installable) and M12 (offline) shipped after M10; their records are in the status
+log below rather than as rows here.
+
+| **M13** | three-handle chrome, no mode: the selected sticker carries ONE resize handle (SE) + ONE rotate dot, and its body is the move handle — with a `pointer-events: none` move mark at the centre as the signpost. The M9 mode row, its `m`/`r` keys and its two hint strings are deleted; the chrome hides itself below 36 CSS px (the measured free-at-36/blocked-at-30 boundary) and returns when the sticker grows. Desktop gets a `move` cursor over a sticker | `tests/e2e/three-handle-probe.js` = 11/11; `handles-probe`, `selection-probe`, `rotate-grab-probe`, `pad-probe`, `handle-pinch-probe`, `coach-probe` and the journey gate all green; `mode-probe.js` retired | **done** (2026-11-14) |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so
@@ -388,6 +406,49 @@ It is a real browser, a real file upload and real pixel assertions — see
 `docs/VERIFICATION.md`. Adding Playwright later is fine; do not delete the probe.
 
 ## Status log
+
+- **2026-11-14** — three-handle chrome (M13), and the mode row (M9) is gone. Requested
+  as "selected sticker should have 3 handles visible: to move, to rotate, to resize" +
+  "the body is enough" for move. The count was never the point: the 8-handle ring was
+  the only reason the chrome could cover the sticker's interior, and that occlusion —
+  not the handle count — is what forced M9's modal Move/Resize row in the first place.
+  With one resize corner and one rotate dot, the single element inside the frame (the
+  move mark) does what a body press does, so nothing left to arbitrate: the modal
+  concept, its two `m`/`r` keys, its two hint strings and `editMode` are deleted, and
+  `mode-probe.js` is retired with its subject. **Gate first**: `three-handle-probe.js`
+  committed RED at **0/11** against the old build (11 criteria, including two negative
+  ones that name their own precondition — the mode row must be absent from a *live*
+  pad, and the move mark must render before its absence is measured).
+  Four things were measured rather than reasoned:
+  (1) **36 CSS px, not 32, is the threshold** — the SE handle's 32 px hit area reaches
+  the frame's centre at exactly ≤32 px, so at that size the chrome would block the
+  very drag it is drawn around; the measured free-at-36/blocked-at-30 pair from
+  `diag-small-sticker-probe` already bracketed the right number, so the chrome steps
+  aside below 36 and the tiny sticker keeps the body drag (11/11 asserts a 22 px
+  sticker drags by −8.75 px in y with no resize and one undo entry).
+  (2) **The flip is deferred while a drag is live.** A resize drag crosses the
+  threshold mid-gesture and hiding the element under a captured pointer is how a
+  pointer changes target, so `_syncChrome` writes only when the state flips AND no
+  drag is open — the handles step aside on the frame after release.
+  (3) **The move mark is not a control.** It is `pointer-events: none` and the probe
+  asserts `document.elementFromPoint` at its own centre returns the CANVAS; a signpost
+  that swallowed the press it points at would be M9's defect wearing new paint. The
+  arrow is an inline SVG data URI, not a glyph — a font-resolved glyph is exactly the
+  OS dependence this repo bans for emoji.
+  (4) **The hover cursor is the desktop affordance now**, since the body has no
+  visible target: one hit test per `pointermove` with no gesture in flight sets
+  `canvas.dataset.hover`, the stylesheet reads it, and `pointerleave` clears it — the
+  probe reads `move` over the sticker and `crosshair` over empty canvas.
+  Six probes drove the deleted row as setup and were re-aimed, not weakened:
+  `selection-probe`, `handles-probe` (9 → 2 handles), `rotate-grab-probe`, `pad-probe`,
+  `diag-small-sticker-probe`, and `handle-pinch-probe` — whose whole subject is "two
+  fingers landing ON a handle still scale", so it now aims its two contacts at the
+  rotate dot and the SE corner (their centroid still starts inside the frame, which is
+  what the transform decision needs), and it proves each press lands on a handle with
+  `elementFromPoint` before pinching. The `m`/`r` keys, `MODE_HINT`, `editMode`, the
+  `.mode-move`/`.mode-resize` classes and the seven unused handle rules are deleted, as
+  is the pad's Mode row — `_setEditMode`/`_applyEditMode` collapse into one
+  `_syncChrome(frameTooSmall)`.
 
 - **2026-11-14** — M12: offline. `sw.js` precaches the shell, all 76 emoji and the icons;
   scope and cleanup come from its own location, so a GitHub Pages subpath works and a

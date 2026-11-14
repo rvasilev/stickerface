@@ -33,7 +33,7 @@ Break one of these and the change is wrong, whatever the tests say.
    happens only at the render/export edge (`px()`, `norm()`), and export always
    composites at `image.naturalWidth/naturalHeight`, never at preview scale.
 6. **One projection for the overlay.** Everything drawn over the canvas (selection
-   frame, 8 handles, rotate handle, hit-testing) is projected as
+   frame, the resize/rotate handles, the move mark, hit-testing) is projected as
    `cssPoint = canvasRect.origin + backingPoint * previewScale` — a single scale,
    the canvas's own rect. Using backing pixels as CSS pixels, borrowing the stage's
    offset, or applying the scale twice is the bug behind the user-reported
@@ -167,6 +167,16 @@ to look for, not as a to-do list. Re-measure before trusting a number here.
   `ready = all 76 bitmaps decoded` meant one undecodable file disabled the whole
   product — exactly the competitor failure mode we exist to avoid. Gate on "the
   user's input is valid"; degrade cosmetically and report it in the UI.
+- **A control's hit area can be bigger than the thing it annotates.** A 12 CSS px
+  handle with a 32 px target covers the whole interior of any sticker ≤ 32 px, so the
+  press meant to move it lands on the handle. `FRAME_MIN_CHROME_PX` (36) is where the
+  chrome now stands down, derived from the target size — never from the handle count.
+- **Never remove the element under a live pointer.** Hiding a captured element
+  mid-gesture re-targets or aborts it: the chrome flip is deferred while any drag is
+  open, applied on the frame after release.
+- **A signpost must not be a target.** The move mark is `pointer-events: none` and a
+  gate asserts `elementFromPoint` at its centre returns the canvas — decoration that
+  swallows the press it points at is worse than decoration that is absent.
 - **Beware duplicate initialisation.** A second `CanvasApp` construction doubled
   every listener and doubled the picker (152 buttons for 76 emoji) while looking
   correct, because each instance re-rendered the layer list from its own store.

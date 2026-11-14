@@ -47,23 +47,23 @@ v1 manual placement (images only — video is not supported):
   step. With nothing selected the click only arms the next drop, as before
 - **Selected-sticker pad** in the panel — nudge arrows with a 1 px / 10 px step and
   size −/+ — so a sticker resized too small to grab can still be moved and resized
-- **Move and Resize are modes, not always-on handles.** With a sticker selected, the
-  pad's first row decides what a press on it does: **Move** (the default) drags it
-  from anywhere inside the frame, with no handles in the way, and **Resize** brings
-  the 8 handles and the rotate handle back. `m` and `r` switch modes from the
-  keyboard. This is what makes a small sticker directly draggable: below ~32 CSS px
-  the handles' 32 px hit areas covered its whole interior, so a press meant to move
-  it landed on `handle:w` — the pad answered that with arrows, the mode answers it
-  with the gesture itself
+- **One resize handle, one rotate handle, and the body moves it.** With a sticker
+  selected, its corner handle resizes it (corners keep aspect, `Shift` frees it) and
+  the dot above its top edge rotates it (`Shift` snaps to 15°) — always, with no mode
+  to switch into, and a small four-way **move mark** at its centre as a signpost. The
+  sticker's body is the move handle, so where a press lands decides what it does: a
+  corner resizes, the dot rotates, anywhere inside drags. Below ~36 CSS px the two
+  handles step aside, because their 32 px hit areas would otherwise cover the whole
+  sticker — the body drag and the pad's arrows take over, and the handles come back
+  when it grows
 - **A first-run coach mark**, once per browser: the first photo explains that one
-  pointer works the stickers and two move or zoom the photo, and that Move/Resize in
-  the panel decide what a drag does. The wording follows the device — a mouse user is
-  told about dragging and scrolling, never about fingers. It goes away when you press
-  its **Got it**, or the moment you start using the canvas, and it never comes back.
-  Its card is `pointer-events: none` (only the button is interactive), so it can never
-  be the reason a press on the photo does nothing
-- Click to drop, drag to move, 8 resize handles (corners keep aspect,
-  `Shift` frees it) and a rotate handle (`Shift` snaps to 15°)
+  pointer works the stickers and two move or zoom the photo, and that a sticker's
+  corner resizes it while the dot above rotates it. The wording follows the device — a
+  mouse user is told about dragging and scrolling, never about fingers. It goes away
+  when you press its **Got it**, or the moment you start using the canvas, and it never
+  comes back. Its card is `pointer-events: none` (only the button is interactive), so
+  it can never be the reason a press on the photo does nothing
+- Click to drop, drag the body to move, the corner to resize, the top dot to rotate
 - Full-resolution export: PNG (default) or JPEG (quality 0.92), always
   composited at the source's natural size — **EXIF and GPS are dropped on
   export**
