@@ -99,9 +99,9 @@
           <button type="button" class="handle rotate" data-handle="rotate" aria-label="Rotate"></button>
         </div>
         <!-- First-run coach mark. The gesture model is unusual (one pointer works the
-             stickers, two move/zoom the photo) and Move/Resize is a mode the user has
-             to notice, so the first photo explains both — ONCE, dismissed either by
-             the button or by simply starting to use the canvas.
+             stickers, two move/zoom the photo) and the sticker's own chrome cannot
+             explain itself before there is a sticker, so the first photo explains it —
+             ONCE, dismissed either by the button or by simply starting to use the canvas.
              Inside .canvas-wrap on purpose: it shrink-wraps the canvas, so the card
              lands over the PHOTO (where the answer is) rather than in the empty stage
              below it. `pointer-events: none` on the wrapper with `auto` on the button

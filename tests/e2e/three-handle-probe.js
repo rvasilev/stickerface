@@ -66,7 +66,6 @@
     const mark = () => box.querySelector('.move-mark');
     const markDisplay = () => { const m = mark(); return m ? getComputedStyle(m).display : 'ABSENT'; };
     const st = () => app.store.state.stickers[0];
-    const minSide = () => { const b = rect(box); return Math.min(b.w, b.h); };
 
     // ---- one sticker, placed high on the canvas so the coach card (bottom-anchored)
     // never sits under the point the move mark is measured at -------------------

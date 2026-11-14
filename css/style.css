@@ -178,14 +178,16 @@ kbd {
   opacity: 0.75;
 }
 /* The rotate stem exists only when the rotate handle does: a stem drawn up to
-   nothing reads as a stray artefact. The chrome hides as a unit when the frame is
-   too small for a finger-sized target (see js/ui.js: FRAME_MIN_CHROME_PX). */
-.select-box.chrome-mini::after { display: none; }
+   nothing reads as a stray artefact. The move mark goes with it — at that size it
+   would sit on the whole sticker. Both follow the same class, in one rule, because
+   they are one decision (see js/ui.js: FRAME_MIN_CHROME_PX). */
+.select-box.chrome-mini::after,
+.select-box.chrome-mini .move-mark { display: none; }
 /* The move mark: a signpost, never a target. The BODY is the move handle, so this
    is `pointer-events: none` and the probe asserts a press at its centre reaches the
    canvas. The arrow is an inline SVG — a glyph would be at the mercy of whatever
    font the OS resolves it to, and this stays a white arrow on a dark disc over any
-   photo. Hidden with the handles: at that size it would sit on the whole sticker. */
+   photo. */
 .select-box .move-mark {
   position: absolute;
   left: 50%;
@@ -202,7 +204,6 @@ kbd {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
-.select-box.chrome-mini .move-mark { display: none; }
 .select-box .handle {
   position: absolute;
   /* SMALL MARKER, FINGER-SIZED TARGET: the visible square is 12 CSS px; the
@@ -320,10 +321,9 @@ kbd {
 /* The emoji grid is the tallest thing in the panel by far (76 tiles). Capping
    it in place keeps the picker visible and the rest of the panel reachable
    without the panel itself scrolling. The cap is 288px rather than 320px because
-   the pad gained a Mode row (Move/Resize): a desktop panel must still fit without
-   scrolling (polish-probe's panelFitsOnDesktop, which allows 8px of slack), and
-   the grid is the one element here that can give up height without losing
-   function — it scrolls. */
+   the desktop panel must fit without scrolling (polish-probe's panelFitsOnDesktop,
+   which allows 8px of slack), and the grid is the one element here that can give up
+   height without losing function — it scrolls. */
 .picker {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
