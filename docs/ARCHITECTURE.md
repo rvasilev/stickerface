@@ -11,8 +11,10 @@ js/ui.js                entry (index.html loads this): CanvasApp — DOM wiring,
                          pointer state machine, selection chrome (8 resize
                          handles + rotate handle, reachable only in Resize mode),
                          the selected-sticker pad with its Move/Resize row and the
-                         hint text that follows the mode, the layers section
-                         (`<details>`/`<summary>`) and the row drag grip.
+                         hint text that follows the mode, the first-run coach mark
+                         (COACH_TEXT, device-appropriate, shown once per browser via
+                         localStorage), the layers section (`<details>`/`<summary>`)
+                         and the row drag grip.
                          `editMode` is view state beside `view`/`_pan`: it is never
                          in the store, so switching it cannot touch geometry, the
                          selection or the undo stack

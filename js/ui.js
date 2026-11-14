@@ -46,6 +46,15 @@ const MODE_HINT = {
   resize: 'Drag a corner to resize (Shift = free) · the handle rotates (Shift = 15° snap) · M to move',
 };
 
+// The first-run coach mark, shown once per browser. Two variants because the copy
+// must name the device's own gesture: a mouse user told about "fingers" learns
+// nothing, and a touch user told to "click" learns the wrong thing.
+const COACH_KEY = 'stickerface.coach.seen';
+const COACH_TEXT = {
+  touch: 'One finger moves a sticker. Two fingers move or zoom the photo. Move/Resize in the panel decide what a drag does.',
+  mouse: 'Drag a sticker to move it. Scroll to zoom, middle-drag to pan. Move/Resize in the panel decide what a drag does.',
+};
+
 /** Cache of decoded bitmaps, keyed by sticker src. */
 export class CanvasApp {
   /**
@@ -111,6 +120,7 @@ export class CanvasApp {
     this._bindKeys();
     this._bindToolbar();
     this._bindPad();
+    this._bindCoach();
     this._bindInputs();
     this._applyEditMode();
     this.store.subscribe((event) => this.onStateChange(event));
@@ -141,6 +151,9 @@ export class CanvasApp {
       wrap: $('#canvas-wrap'),
       canvas: $('#stage-canvas'),
       selectBox: $('#select-box'),
+      coach: $('#coach'),
+      coachBody: $('#coach-body'),
+      coachDismiss: $('#coach-dismiss'),
       hint: $('#stage-hint'),
       fileInput: $('#file-input'),
       customInput: $('#custom-input'),
@@ -274,6 +287,7 @@ export class CanvasApp {
         }
       }
       this.fitCanvas();
+      this._maybeShowCoach();
       URL.revokeObjectURL(url);
     };
     img.onerror = () => URL.revokeObjectURL(url);
@@ -1183,6 +1197,11 @@ export class CanvasApp {
     canvas.addEventListener('pointerdown', (e) => {
       if (!this.image) return;
 
+      // The first-run explainer gets out of the way the moment the user starts
+      // using the canvas — a coach mark that has to be dismissed by finding its
+      // button is friction, and by now the user has demonstrated they are going.
+      this._dismissCoach();
+
       // Middle button pans the zoomed photo, and must NOT reach the sticker
       // hit-test below: a middle press on a sticker is not a click on it. The drag
       // then feeds the SAME `_applyPanMove` the two-finger gesture uses — with one
@@ -1650,6 +1669,41 @@ export class CanvasApp {
     // hidden handle as well.
     for (const el of this.els.selectBox.querySelectorAll('.handle')) el.hidden = move;
     this.els.hint.textContent = move ? MODE_HINT.move : MODE_HINT.resize;
+  }
+
+  /* ---------- first-run coach mark ---------- */
+
+  _bindCoach() {
+    // Hidden in the markup; this is the only place it is revealed.
+    this.els.coach.hidden = true;
+    this.els.coachDismiss.addEventListener('click', () => this._dismissCoach());
+  }
+
+  /**
+   * Show the explainer on the FIRST photo only. Called from the image's onload, so
+   * there is nothing to explain before a photo exists.
+   */
+  _maybeShowCoach() {
+    if (this._coachSeen()) return;
+    const coarse = window.matchMedia('(pointer: coarse)').matches;
+    this.els.coachBody.textContent = coarse ? COACH_TEXT.touch : COACH_TEXT.mouse;
+    this.els.coach.hidden = false;
+  }
+
+  /**
+   * Has this browser seen the explainer? Storage can throw (private mode, blocked
+   * site data) and that must never take the app down — an unreadable flag just
+   * means the mark may appear again, which is the harmless direction to fail in.
+   */
+  _coachSeen() {
+    try { return localStorage.getItem(COACH_KEY) === '1'; } catch { return false; }
+  }
+
+  /** Hide the explainer and remember it, for either dismissal path. */
+  _dismissCoach() {
+    if (this.els.coach.hidden) return;
+    this.els.coach.hidden = true;
+    try { localStorage.setItem(COACH_KEY, '1'); } catch { /* see _coachSeen */ }
   }
 
   /* ---------- export + batch ---------- */

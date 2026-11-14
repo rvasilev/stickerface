@@ -379,6 +379,7 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **done** (2026-11-14, three delegated rounds) |
 | **M8** | selected-sticker pad: nudge arrows + a 1 px/10 px step + size −/+, so a sticker too small to grab can still be moved and resized | `tests/e2e/pad-probe.js` = 7/7, every M1–M7 gate green | **done** (2026-11-14, delegated; the gate itself corrected once) |
 | **M9** | Move/Resize modes: what a press on the selected sticker DOES is explicit, chosen from the pad's mode row — so the 8 resize handles and the rotate handle are Resize-mode chrome, not always-on | `tests/e2e/mode-probe.js` = 10/10, every M1–M8 gate green | **done** (2026-11-14) |
+| **M10** | first-run coach mark: the first photo explains the gesture model (and names the Move/Resize row) once per browser — device-appropriate wording, dismissible by its button or by simply starting to use the canvas, and never repeated | `tests/e2e/coach-probe.js` = 9/9, every M1–M9 gate green | **done** (2026-11-14) |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so
@@ -388,6 +389,21 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — first-run coach mark (M10), the last item from
+  `mobile-ux-perf-brainstorm.md`'s ranked list and the answer to the gap M9 left:
+  the mode pair is discoverable only if the user notices the row. The first photo now
+  explains the gesture model once, with copy chosen by input device — a mouse user
+  told about "fingers" learns nothing, and `coachTextMatchesPointerType` measures
+  that against `matchMedia('(pointer: coarse)')`. Dismissed by its button OR by the
+  first canvas press, because a coach mark you have to hunt a button to dismiss is
+  friction; either path sets the flag, and a later photo does not bring it back.
+  Two things the gate forced:
+  (a) it first sat in the stage's empty space BELOW the canvas, so a press over the
+  card landed on the stage and the pass-through criterion was measuring nothing —
+  it now lives inside `.canvas-wrap`, which shrink-wraps the canvas, so the card is
+  over the photo where the answer is; (b) `coachTextMatchesPointerType` passed
+  VACUOUSLY at 1/9 (`/finger/.test('') === false` matches a mouse pointer), so it is
+  now guarded on the coach existing with real text.
 - **2026-11-14** — Move/Resize modes (M9). The same defect the pad (M8) addressed,
   answered the other way: option 1 of the original brainstorm instead of option 6.
   The pad made a tiny sticker movable by ARROWS; the mode makes the DIRECT gesture

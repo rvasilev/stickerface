@@ -39,6 +39,13 @@ v1 manual placement (images only — video is not supported):
   the handles' 32 px hit areas covered its whole interior, so a press meant to move
   it landed on `handle:w` — the pad answered that with arrows, the mode answers it
   with the gesture itself
+- **A first-run coach mark**, once per browser: the first photo explains that one
+  pointer works the stickers and two move or zoom the photo, and that Move/Resize in
+  the panel decide what a drag does. The wording follows the device — a mouse user is
+  told about dragging and scrolling, never about fingers. It goes away when you press
+  its **Got it**, or the moment you start using the canvas, and it never comes back.
+  Its card is `pointer-events: none` (only the button is interactive), so it can never
+  be the reason a press on the photo does nothing
 - Click to drop, drag to move, 8 resize handles (corners keep aspect,
   `Shift` frees it) and a rotate handle (`Shift` snaps to 15°)
 - Full-resolution export: PNG (default) or JPEG (quality 0.92), always

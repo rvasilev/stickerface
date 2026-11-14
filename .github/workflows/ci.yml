@@ -161,3 +161,16 @@ jobs:
         env:
           E2E_PROBE: tests/e2e/mode-probe.js
         run: bash scripts/e2e.sh
+
+      # Both modes: the wording variant is chosen from `pointer: coarse`, so the
+      # desktop run proves the mouse copy and the touch run proves the finger copy.
+      - name: Gate — first-run coach mark (once per browser, device-appropriate)
+        env:
+          E2E_PROBE: tests/e2e/coach-probe.js
+        run: bash scripts/e2e.sh
+
+      - name: Gate — first-run coach mark under touch
+        env:
+          E2E_MOBILE: "1"
+          E2E_PROBE: tests/e2e/coach-probe.js
+        run: bash scripts/e2e.sh

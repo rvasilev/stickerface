@@ -229,6 +229,40 @@ kbd {
   background: var(--surface);
 }
 
+/* First-run coach mark (see js/ui.js: COACH_TEXT, shown once per browser by
+   localStorage). Bottom-anchored so it cannot sit under the probe-visible middle of
+   the canvas, and `pointer-events: none` so every press goes through to the canvas
+   except the button's own. `:not([hidden])` is deliberate — an author rule that sets
+   `display` outranks the UA's `[hidden] { display: none }`, which is how this app
+   once shipped seven elements that were "hidden" and rendered anyway. */
+.coach {
+  position: absolute;
+  left: 50%;
+  bottom: 0.5rem;              /* over the photo's lower edge, where the answer is */
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 1rem);
+  pointer-events: none;
+  z-index: 6;
+}
+.coach:not([hidden]) { display: block; }
+.coach-card {
+  display: flex; flex-direction: column; gap: 0.35rem; align-items: flex-start;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.coach-title { margin: 0; font-weight: 600; }
+.coach-body { margin: 0; font-size: 0.82rem; color: var(--text-dim); }
+.coach-card button {
+  pointer-events: auto;
+  align-self: flex-end;
+  min-height: 32px;
+  padding: 0.35rem 0.9rem;
+}
+
 /* Right panel */
 .panel {
   padding: 0.75rem;
