@@ -34,7 +34,17 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       if (reloadBtn) {
         reloadBtn.addEventListener('click', () => {
           reloading = true;
-          navigator.serviceWorker.controller?.postMessage({ type: 'SKIP_WAITING' });
+          // The message goes to the WAITING worker. `skipWaiting()` on the ACTIVE one is a no-op,
+          // and posting to `navigator.serviceWorker.controller` (which is what this did) therefore
+          // left the update waiting forever: no activation, no `controllerchange`, no reload, and
+          // the bar sat there looking like a click that had been ignored. `reg.waiting` is null
+          // only once that worker has already activated, and then a reload is all that is left.
+          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          else location.reload();
+          // Say something either way. Disabled-and-labelled beats a live button that appears to do
+          // nothing while the new worker takes over.
+          reloadBtn.disabled = true;
+          reloadBtn.textContent = 'Reloading…';
         });
       }
     } catch (err) {

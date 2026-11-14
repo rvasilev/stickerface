@@ -175,6 +175,20 @@ jobs:
           E2E_PROBE_OFFLINE: tests/e2e/offline-probe.js
         run: bash scripts/e2e.sh
 
+      # The update TRANSITION — the one gate that crosses a navigation the app itself makes.
+      # Registering the same script under a never-used URL makes a worker that WAITS behind the
+      # controlling one, which is the state no other probe can produce (a one-origin-state
+      # harness has no second worker). The click is a real CDP mouse click on the bar's button,
+      # and the reader runs in the document AFTER the app's own reload — a probe cannot intercept
+      # that reload (`location.reload` is an unforgeable own property), so what the reader needs
+      # is stashed in sessionStorage on the way through. Desktop mode on purpose, because the
+      # criterion tells the app's reload apart from the harness's own load by navigation type,
+      # which only holds when nothing else reloads.
+      - name: Gate — a waiting worker, the bar that offers it, and the click that takes it over
+        env:
+          E2E_PROBE: tests/e2e/update-probe.js
+        run: bash scripts/e2e.sh
+
       - name: Gate — two-finger sticker transform (pinch, twist, drag) inside the frame
         env:
           E2E_MOBILE: "1"

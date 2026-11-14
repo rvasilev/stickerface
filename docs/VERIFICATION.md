@@ -46,6 +46,7 @@ probe must never read as success).
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 | `install-probe.js` — the app is installable: the manifest is linked and parses, it carries the members the install surfaces read, every declared icon downloads and DECODES at the size it claims, the apple-touch-icon is 180×180, and all three theme-colour declarations match the colour the app paints | 7 (6 page-side + 1 from the harness) | green (2026-11-14) |
 | `offline-probe.js` — with the origin server stopped: the worker is genuinely offline (asserted on the worker, not just the page), it serves the shell from its own cache, all 76 emoji are precached, the stale `sf-v0` is gone, a seeded neighbour's cache is untouched, a first install offers no update bar, a sticker is placed and exported, and every request stayed same-origin | 12 (11 page-side + 1 from the harness) | green (2026-11-14) |
+| `update-probe.js` — the update TRANSITION, the one gate that spans two navigations: a worker that WAITS behind the controller (the same script under a URL this run never used), the bar offered by the app's own load path with its button owning its centre, one real CDP click, and then — read in the document the app's own reload produces — a navigation that is a `reload`, a controller that is a DIFFERENT worker than the one before the click, and a bar that is gone | 4 | green (2026-11-15) |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 | `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
@@ -396,6 +397,28 @@ rather than letting "no change" read as success.
 - **Pages CDN caching (~10 min TTL).** A probe or module pushed seconds ago is not
   what the live run executes. The probe and fixture fetches append `?cb=<Date.now()>`
   with `cache: 'no-store'` — do not remove them.
+- **A probe cannot intercept the app's reload.** `location.reload` is an unforgeable own property
+  of the location object: `Object.getOwnPropertyDescriptor(Location.prototype, 'reload')` is
+  `null` and `Object.defineProperty(location, 'reload', …)` throws `Cannot redefine property:
+  reload`. A gate whose click makes the app reload therefore loses its context mid-run — the
+  harness reports `READER FAILED` with a `null` and that is the navigation, not a broken reader.
+  Read the aftermath in the NEXT document instead: stash what the reader needs in
+  `sessionStorage`, and re-install the reader there — a no-op mouse `move` step's `fns` expression
+  is the harness's only generic hook that survives a navigation.
+- **No controller, no waiting worker.** A new worker activates immediately instead of waiting when
+  no controller exists, so an update transition has nowhere to happen — assert/obtain control
+  first. Conversely a page CAN be uncontrolled while the registration is live, so "there is a
+  registration" is not "the page is controlled".
+- **Do not unregister a worker mid-probe to get a clean start.** The app's click handler holds the
+  registration object it obtained at load; unregistering invalidates it, so the handler reads
+  `waiting === null`, takes its "already activated" branch, and reloads with the OLD worker still
+  in charge — measured as `navType: 'reload'` with an unchanged controller, which blames the app
+  for the probe's own sabotage. Let the app register, wait for control, and only force an install
+  if the profile left the page uncontrolled.
+- **A probe's setup can fire the very event the app reacts to.** The app reloads on
+  `controllerchange` once its reload flag is set by the click, so a `clients.claim()` still in
+  flight from the probe's own fresh install produces a reload with the old worker in charge.
+  Settle such in-flight state (wait for control, then a beat) before the click.
 - **The probe path must be RELATIVE.** The app is at the origin root locally but under
   `/stickerface/` on Pages; a root-absolute `/tests/e2e/probe.js` resolves to the
   origin root, returns a 404 **HTML** page, and the eval dies with
