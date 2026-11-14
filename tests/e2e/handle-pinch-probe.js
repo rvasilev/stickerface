@@ -16,9 +16,10 @@
 // silently, with no console error, and with every other named gate green.
 //
 // Oracles, all from canvas pixels: the sticker's Twemoji yellow bbox (its size) and
-// `dataset` (which mode the canvas thinks it is in). Handles are hidden in Move mode,
-// so the probe selects Resize first — setup, not a criterion — and proves each press
-// really lands on a handle with `document.elementFromPoint`.
+// `dataset` (which mode the canvas thinks it is in). The two handles it aims at are
+// the selected sticker's always-on chrome — the rotate handle above the top edge and
+// the SE resize corner — and it proves each press really lands on a handle with
+// `document.elementFromPoint`.
 (async () => {
   const r = { steps: [], errors: [] };
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -69,15 +70,10 @@
     canvas.dispatchEvent(new PointerEvent('pointerup', o));
     await sleep(250);
 
-    // Handles are hidden in Move mode; this probe needs them VISIBLE and
-    // hit-testable, so switch to Resize (setup, not a criterion).
-    document.getElementById('mode-resize').click();
-    await sleep(200);
-
     const handles = [...document.querySelectorAll('#select-box .handle')];
-    r.handleCount = handles.length === 9;
+    r.handleCount = handles.length === 2;   // 1 resize + 1 rotate
     const visible = handles.filter((h) => !h.hidden && h.getBoundingClientRect().width > 0).length;
-    r.handlesVisible = visible === 9;
+    r.handlesVisible = visible === 2;
 
     // Proof that the press really lands on a handle (not the canvas).
     window.__sfH = (name) => {
@@ -90,27 +86,32 @@
       const el = document.elementFromPoint(p[0], p[1]);
       return el ? (el.closest('.handle') ? 'handle:' + el.closest('.handle').dataset.handle : (el.id || el.className)) : null;
     };
-    const nPt = window.__sfH('n'), sPt = window.__sfH('s');
-    r.topHitIsHandle = String(window.__sfHitName('n')).startsWith('handle');
-    r.botHitIsHandle = String(window.__sfHitName('s')).startsWith('handle');
-    log('aim', { nPt, sPt, nHit: window.__sfHitName('n'), sHit: window.__sfHitName('s') });
+    const rotPt = window.__sfH('rotate'), sePt = window.__sfH('se');
+    r.topHitIsHandle = String(window.__sfHitName('rotate')).startsWith('handle');
+    r.cornerHitIsHandle = String(window.__sfHitName('se')).startsWith('handle');
+    log('aim', { rotPt, sePt, rotHit: window.__sfHitName('rotate'), seHit: window.__sfHitName('se') });
 
-    const grow = (dy) => ({
-      t: 'touchMove',
-      fns: [
-        `(()=>{const p=window.__sfH('n');return [p[0],p[1]-${dy}];})()`,
-        `(()=>{const p=window.__sfH('s');return [p[0],p[1]+${dy}];})()`,
-      ],
-      ms: 45,
-    });
+    // The two contacts move along the line joining them, in OPPOSITE directions and
+    // by the same amount: the centroid stays put, so the gesture scales the sticker
+    // without translating it (a drifting centroid walks the sticker off the canvas,
+    // and the yellow bbox this probe measures is then a clipped sliver).
+    const grow = (d) => {
+      const along = (sign, which) => [
+        `(()=>{const p=window.__sfH('rotate'),q=window.__sfH('se');`,
+        `const dx=q[0]-p[0],dy=q[1]-p[1],n=Math.hypot(dx,dy)||1;`,
+        `const a=${which === 'rotate' ? 'p' : 'q'};`,
+        `return [a[0]+${sign}*dx/n*${d},a[1]+${sign}*dy/n*${d}];})()`,
+      ].join('');
+      return { t: 'touchMove', fns: [along(-1, 'rotate'), along(1, 'se')], ms: 45 };
+    };
     window.__sfSnaps = {};
     window.__sfSnap = (name) => { window.__sfSnaps[name] = measure(); return true; };
     window.__sfNextInput = [
       { t: 'read', name: 'before' },
-      { t: 'touchStart', fns: [`window.__sfH('n')`, `window.__sfH('s')`], ms: 90 },
-      grow(20), grow(45), grow(75), grow(105),
+      { t: 'touchStart', fns: [`window.__sfH('rotate')`, `window.__sfH('se')`], ms: 90 },
+      grow(15), grow(30), grow(45),
       { t: 'read', name: 'during' },
-      grow(140), grow(180),
+      grow(60),
       { t: 'touchEnd', pts: [], ms: 260 },
       { t: 'read', name: 'after' },
     ];

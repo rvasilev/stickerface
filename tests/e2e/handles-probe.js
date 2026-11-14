@@ -44,19 +44,15 @@
     canvas.dispatchEvent(new PointerEvent('pointerup', o));
     await sleep(250);
 
-    // Movable vs resizable is a MODE, and Move is the default: the resize/rotate
-    // handles are hidden in it, and the app refuses to drive a hidden handle. This
-    // probe drives those handles, so it switches to Resize first — setup, not a
-    // criterion (the mode pair has its own gate, mode-probe.js).
-    document.getElementById('mode-resize').click();
-    await sleep(150);
-
+    // The resize and rotate handles are the selected sticker's chrome, with no mode
+    // to switch into — they are out whenever the frame is big enough to carry a
+    // finger-sized target (three-handle-probe.js gates that).
     const handles = [...document.querySelectorAll('#select-box .handle')];
     const sizes = handles.map((el) => {
       const b = el.getBoundingClientRect();
       return { handle: el.dataset.handle, w: Math.round(b.width * 10) / 10, h: Math.round(b.height * 10) / 10, cx: b.left + b.width / 2, cy: b.top + b.height / 2 };
     });
-    r.handleCount = handles.length === 9;   // 8 resize + 1 rotate
+    r.handleCount = handles.length === 2;   // 1 resize + 1 rotate
     r.handlesSmall = sizes.every((s) => s.w <= 15 && s.h <= 15 && s.w >= 8 && s.h >= 8);
     log('handleSizes', sizes);
     const rot = sizes.find((s) => s.handle === 'rotate');

@@ -113,11 +113,9 @@
     }
 
     // --- 2. hand a handle drag to the driver (real input) -------------------
-    // This probe drives the SE and rotate handles, which exist only in Resize mode
-    // (Move is the default, and the app refuses to drive a hidden handle). Setup,
-    // not a criterion — the mode pair has its own gate, mode-probe.js.
-    document.getElementById('mode-resize').click();
-    await sleep(150);
+    // This probe drives the SE and rotate handles. No setup call is needed: they
+    // are the selected sticker's chrome whenever it is big enough to carry a
+    // finger-sized target (three-handle-probe.js gates that).
 
     const se = document.querySelector('[data-handle="se"]');
     if (b && se) {

@@ -50,11 +50,8 @@
     const sel = app.store.state.selection;
     const st0 = app.store.state.stickers.find((s) => s.id === sel);
     const box = document.getElementById('select-box');
-    // The rotate handle exists only in Resize mode (Move is the default: the
-    // handles are hidden, and the app refuses a hidden one). Setup, not a
-    // criterion — the mode pair has its own gate, mode-probe.js.
-    document.getElementById('mode-resize').click();
-    await sleep(150);
+    // The rotate handle is the selected sticker's chrome; there is no mode to
+    // switch into (three-handle-probe.js gates the chrome itself).
 
     const handle = box.querySelector('[data-handle="rotate"]');
     const h = rect(handle);

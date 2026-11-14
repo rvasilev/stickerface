@@ -1,7 +1,7 @@
 // First-run coach mark probe. The gesture model is unusual (one finger works the
 // stickers, two fingers move/zoom the photo) and nobody discovers it without being
-// told; below ~32 CSS px the handles used to block a move drag too, and Move/Resize
-// is a mode the user has to notice. So the first photo load explains it, once.
+// told; the sticker's own chrome says the rest. So the first photo load explains it,
+// once.
 //
 // Requirements this pins, each of which has a way to be wrong:
 //   * it appears on the FIRST photo, and never before one is loaded

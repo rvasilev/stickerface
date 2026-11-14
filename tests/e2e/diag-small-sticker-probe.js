@@ -40,11 +40,8 @@
     await sleep(200);
     log('placedStickers', app.store.state.stickers.length);
 
-    // Move is the default mode (M9) and a hidden handle refuses activation, so the
-    // sweep has to switch to Resize first. Without this every sample reads the same
-    // size and the probe reports a "blocked" threshold it never measured.
-    document.getElementById('mode-resize').click();
-    await sleep(150);
+    // Both remaining handles are the selected sticker's chrome — nothing to switch
+    // into (three-handle-probe.js gates that they are out at a grabbable size).
 
     // Drag the SE handle so the box becomes ~target px, keeping the NW corner pinned.
     const shrinkTo = async (targetPx) => {
