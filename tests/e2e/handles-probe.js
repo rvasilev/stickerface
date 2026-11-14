@@ -44,6 +44,13 @@
     canvas.dispatchEvent(new PointerEvent('pointerup', o));
     await sleep(250);
 
+    // Movable vs resizable is a MODE, and Move is the default: the resize/rotate
+    // handles are hidden in it, and the app refuses to drive a hidden handle. This
+    // probe drives those handles, so it switches to Resize first — setup, not a
+    // criterion (the mode pair has its own gate, mode-probe.js).
+    document.getElementById('mode-resize').click();
+    await sleep(150);
+
     const handles = [...document.querySelectorAll('#select-box .handle')];
     const sizes = handles.map((el) => {
       const b = el.getBoundingClientRect();

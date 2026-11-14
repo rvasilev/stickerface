@@ -137,7 +137,10 @@
       log('headings', { count: headings.length, distinct: treatments });
 
       // ---- 8. the nudge cluster reads in a conventional order -------------
-      const order = [...panel.querySelectorAll('#sticker-pad .pad-group')][0];
+      // Selected by its label, not by index: the pad's groups are not a fixed
+      // list (the mode row was added as the first one), and the claim is about
+      // the NUDGE cluster specifically.
+      const order = panel.querySelector('#sticker-pad .pad-group[aria-label="Nudge sticker"]');
       const domIds = order ? [...order.querySelectorAll('button')].map((b) => b.id) : [];
       r.nudgeOrderIsConventional = domIds.length === 4
         && domIds.join(',') === 'pad-nudge-left,pad-nudge-up,pad-nudge-down,pad-nudge-right';

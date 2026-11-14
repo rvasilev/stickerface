@@ -83,6 +83,11 @@
     window.__sfSnaps = snaps;
     window.__sfSnap = async (name) => {
       if (name === 'shrink') {
+        // The SE handle exists only in Resize mode — Move hides it, and the app
+        // refuses to drive a hidden handle (which is the point of the mode pair).
+        // Switch first: setup, not a criterion (see mode-probe.js for the gate).
+        document.getElementById('mode-resize').click();
+        await sleep(120);
         // Shrink to ~22 CSS px by dragging the SE handle. Target the box's OWN
         // left+22, not its centre: the NW corner is the pinned one, and a
         // centre target silently leaves a 70 px box that cannot fail.

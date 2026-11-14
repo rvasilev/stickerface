@@ -9,9 +9,13 @@ index.html              markup only: toolbar, stage, canvas, right panel, About
 css/style.css           all styling; no external fonts
 js/ui.js                entry (index.html loads this): CanvasApp — DOM wiring,
                          pointer state machine, selection chrome (8 resize
-                         handles + rotate handle), layer list, the
-                         selected-sticker pad, the layers section
-                         (`<details>`/`<summary>`) and the row drag grip
+                         handles + rotate handle, reachable only in Resize mode),
+                         the selected-sticker pad with its Move/Resize row and the
+                         hint text that follows the mode, the layers section
+                         (`<details>`/`<summary>`) and the row drag grip.
+                         `editMode` is view state beside `view`/`_pan`: it is never
+                         in the store, so switching it cannot touch geometry, the
+                         selection or the undo stack
 js/store.js             Store: state + command-pattern undo/redo + subscribe().
                          `moveTo(id, index)` is the one reorder path — 0 = bottom —
                          and the row buttons, `[`/`]` and the grip drag all ride it

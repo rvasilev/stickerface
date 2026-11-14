@@ -87,7 +87,7 @@
           <button type="button" class="handle rotate" data-handle="rotate" aria-label="Rotate"></button>
         </div>
       </div>
-      <p class="stage-hint" id="stage-hint" hidden>Click canvas to drop a sticker · drag to move · corners resize (Shift = free) · handle rotates (Shift = 15° snap)</p>
+      <p class="stage-hint" id="stage-hint" hidden>Click canvas to drop a sticker · drag to move · R shows resize handles</p>
     </main>
 
     <!-- Right panel -->
@@ -95,6 +95,16 @@
       <section id="sticker-pad" aria-labelledby="pad-heading" hidden>
         <h2 id="pad-heading">Selected sticker</h2>
         <div class="pad">
+          <!-- The modification toolbar: what a gesture on the sticker DOES. Move is
+               the default, so the 8 resize handles and the rotate handle are not
+               always-on chrome — they belong to Resize mode, and at or below ~32
+               CSS px their hit areas otherwise cover the sticker's whole interior
+               and make it impossible to move by dragging it. -->
+          <div class="pad-group" role="group" aria-label="Sticker mode">
+            <span class="pad-label">Mode</span>
+            <button type="button" id="mode-move" aria-pressed="true" title="Move the sticker (M)">Move</button>
+            <button type="button" id="mode-resize" aria-pressed="false" title="Resize and rotate (R)">Resize</button>
+          </div>
           <div class="pad-group" role="group" aria-label="Nudge sticker">
             <span class="pad-label">Nudge</span>
             <button type="button" id="pad-nudge-left" aria-label="Nudge left">←</button>

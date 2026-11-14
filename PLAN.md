@@ -378,6 +378,7 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M6** | two-finger sticker transform inside the frame: pinch scale, twist rotate, centroid move (Instagram-like) | `tests/e2e/sticker-transform-probe.js` = 9/9, M5 gate still green | **done** (2026-11-14) |
 | **M7** | two-finger image pinch-zoom (focal, clamped, view-only) | `tests/e2e/zoom-probe.js` = 9/9; export identical at any zoom | **done** (2026-11-14, three delegated rounds) |
 | **M8** | selected-sticker pad: nudge arrows + a 1 px/10 px step + size −/+, so a sticker too small to grab can still be moved and resized | `tests/e2e/pad-probe.js` = 7/7, every M1–M7 gate green | **done** (2026-11-14, delegated; the gate itself corrected once) |
+| **M9** | Move/Resize modes: what a press on the selected sticker DOES is explicit, chosen from the pad's mode row — so the 8 resize handles and the rotate handle are Resize-mode chrome, not always-on | `tests/e2e/mode-probe.js` = 10/10, every M1–M8 gate green | **done** (2026-11-14) |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so
@@ -387,6 +388,21 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — Move/Resize modes (M9). The same defect the pad (M8) addressed,
+  answered the other way: option 1 of the original brainstorm instead of option 6.
+  The pad made a tiny sticker movable by ARROWS; the mode makes the DIRECT gesture
+  work at any size, because the handles are simply not there in Move mode. The mode
+  is **view state in `js/ui.js`** (`editMode`, beside `view`/`_pan`), deliberately
+  not in the store: a mode switch emits no event and pushes no undo entry, and
+  `modeSwitchIsViewOnly` measures that. Handles are hidden with the `hidden`
+  attribute — and `_startHandleDrag` refuses a hidden handle, because the repo's own
+  rule is that hiding is not disabling (a criterion dispatches a real press at a
+  hidden handle and asserts nothing moved). The four probes that drive handles now
+  say which mode they drive, and the gate itself passed through three
+  phase-plumbing corrections before 10/10: the handle drag had to move to the
+  harness's top-level `nextDrag` plan, and `modeSwitchIsViewOnly` first compared the
+  run's opening snapshot — which folded the shrink drag's own undo entry into a
+  claim about the mode.
 - **2026-11-14** — two-finger sticker transform (M6). Gate first: 3/8 → 9/9, unit
   129 → 138 (the probe now has nine criteria: the translate half had NONE, so a
   build with no translate passed everything — added `twoFingerDragMovesSticker`).

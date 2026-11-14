@@ -37,6 +37,15 @@ const PAD_HOLD_REPEAT_MS = 120;
 const PAD_SIZE_DOWN = 0.9;
 const PAD_SIZE_UP = 1.1;
 
+// The stage hint follows the mode, so the instruction painted on the photo never
+// names a control the user cannot currently see. The Move string is repeated in
+// index.html deliberately: that is what shows before this module runs, and Move
+// is the default.
+const MODE_HINT = {
+  move: 'Click canvas to drop a sticker · drag to move · R shows resize handles',
+  resize: 'Drag a corner to resize (Shift = free) · the handle rotates (Shift = 15° snap) · M to move',
+};
+
 /** Cache of decoded bitmaps, keyed by sticker src. */
 export class CanvasApp {
   /**
@@ -61,6 +70,12 @@ export class CanvasApp {
     // purpose: the view must never touch sticker geometry, the selection, or
     // the undo stack.
     this.view = { dx: 0, dy: 0, scale: 1 };
+    // What a gesture on the SELECTED sticker does: 'move' (the frame only — a
+    // press anywhere inside it drags the sticker) or 'resize' (the 8 handles and
+    // the rotate handle become reachable). UI state like `view`, and out of the
+    // store for the same reason: a mode switch must never touch geometry or the
+    // undo stack. Named apart from `this.drag.mode` (the drag KIND).
+    this.editMode = 'move';
     // Active canvas pointers (client/CSS coords). One -> sticker mode; two or
     // more -> view (pan) mode. The tracker IS the arbitration state: a stale
     // entry makes the next one-finger tap read as a second finger and silently
@@ -97,6 +112,7 @@ export class CanvasApp {
     this._bindToolbar();
     this._bindPad();
     this._bindInputs();
+    this._applyEditMode();
     this.store.subscribe((event) => this.onStateChange(event));
     this.init();
   }
@@ -145,6 +161,8 @@ export class CanvasApp {
       radius: $('#radius'),
       radiusValue: $('#radius-value'),
       pad: $('#sticker-pad'),
+      modeMove: $('#mode-move'),
+      modeResize: $('#mode-resize'),
       padSizeValue: $('#pad-size-value'),
       padNudgeUp: $('#pad-nudge-up'),
       padNudgeDown: $('#pad-nudge-down'),
@@ -435,6 +453,7 @@ export class CanvasApp {
     const bx = rect.x * k + this.view.dx;
     const by = rect.y * k + this.view.dy;
 
+    const entering = box.hidden;   // the chrome is synced once per selection
     box.hidden = false;
     this.els.pad.hidden = false;
     this.els.padSizeValue.textContent = `${Math.round(st.w * 100)}%`;
@@ -450,6 +469,10 @@ export class CanvasApp {
     } else {
       box.style.transform = '';
     }
+    // Entering a selection: project the mode once. NOT per pointer move — this
+    // function runs on every drag frame, and touching nine attributes (plus a
+    // querySelectorAll) per frame is churn the layers work already removed here.
+    if (entering) this._applyEditMode();
   }
 
   /* ---------- state -> DOM ---------- */
@@ -1210,6 +1233,11 @@ export class CanvasApp {
       if (hitId) {
         const st = this.store.state.stickers.find((s) => s.id === hitId);
         this.store.select(hitId);
+        // Resize mode: the handles are the affordance, so a press aimed at one
+        // must not drag the sticker out from under the pointer. Selecting is all
+        // this press does — no drag object, so no undo entry either. (Release
+        // still runs the tap path, which refuses to place over a sticker.)
+        if (this.editMode === 'resize') return;
         this.drag = { mode: 'move', id: hitId, start: pt, startCx: st.cx, startCy: st.cy };
         this.store.beginDrag(hitId);
         canvas.dataset.dragging = '1';
@@ -1347,6 +1375,10 @@ export class CanvasApp {
    */
   _startHandleDrag(el, e) {
     e.stopPropagation();
+    // Hiding is not disabling: a hidden handle still fires this handler when
+    // something activates it (a script, a stale shortcut, a probe). Move mode
+    // hides these, so refuse them explicitly rather than relying on the markup.
+    if (el.hidden) return;
     const st = this._selectedSticker();
     if (!st || !this.image) return;
     this._registerPointer(e.pointerId, e.clientX, e.clientY);
@@ -1382,6 +1414,7 @@ export class CanvasApp {
         rawRot: st.rot || 0,
       }
       : { mode: 'resize', id: st.id, handle, keepAspect: !e.shiftKey };
+    const myDrag = this.drag;   // this listener must only ever drive THIS drag
     this.store.beginDrag(st.id);
     this._activeHandlePointerId = e.pointerId;
 
@@ -1390,6 +1423,12 @@ export class CanvasApp {
       // drag to drive: the pan derives its distance from the tracker.
       if (this._pointers.has(ev.pointerId)) this._registerPointer(ev.pointerId, ev.clientX, ev.clientY);
       if (!this.drag) return;
+      // This listener OUTLIVES its drag when the gesture ends without a pointerup
+      // this element ever sees (a cancelled pointer, a release delivered to
+      // whatever captured it). The identity check stops it then firing for the
+      // NEXT canvas drag and calling resizeRect with a handle of undefined —
+      // which throws inside that pointermove and corrupts the move it interrupted.
+      if (this.drag !== myDrag) return;
       if (this._pointers.size >= 2) return;
       // Key the handle off the DRAG, not ev.target: under touch capture,
       // ev.target can be an inner element or the canvas.
@@ -1457,6 +1496,18 @@ export class CanvasApp {
         e.preventDefault();
         if (e.shiftKey) this.store.redo();
         else this.store.undo();
+        return;
+      }
+
+      // Mode keys: only with a sticker selected (a mode with nothing selected has
+      // nothing to act on), and never while a form field has focus — the early
+      // return above already covers that.
+      if (st && (e.key === 'm' || e.key === 'M')) {
+        this._setEditMode('move');
+        return;
+      }
+      if (st && (e.key === 'r' || e.key === 'R')) {
+        this._setEditMode('resize');
         return;
       }
 
@@ -1566,6 +1617,39 @@ export class CanvasApp {
     };
     this.els.padStep1.addEventListener('click', () => setStep(1));
     this.els.padStep10.addEventListener('click', () => setStep(10));
+
+    // The mode row — the whole "modification toolbar": it decides what a press on
+    // the sticker does, and therefore whether the resize/rotate handles exist.
+    this.els.modeMove.addEventListener('click', () => this._setEditMode('move'));
+    this.els.modeResize.addEventListener('click', () => this._setEditMode('resize'));
+  }
+
+  /** Switch the selected sticker's interaction mode ('move' | 'resize'). */
+  _setEditMode(mode) {
+    const next = mode === 'resize' ? 'resize' : 'move';
+    if (next === this.editMode) return;
+    this.editMode = next;
+    this._applyEditMode();
+  }
+
+  /**
+   * The ONE place `editMode` reaches the DOM: the buttons' aria state, the frame's
+   * mode class, every handle's `hidden`, and the stage hint. A mode switch is view
+   * state, so this projects and nothing else — no store call, hence no undo entry
+   * and no `change` event.
+   */
+  _applyEditMode() {
+    const move = this.editMode !== 'resize';
+    this.els.modeMove.setAttribute('aria-pressed', String(move));
+    this.els.modeResize.setAttribute('aria-pressed', String(!move));
+    this.els.selectBox.classList.toggle('mode-move', move);
+    this.els.selectBox.classList.toggle('mode-resize', !move);
+    // `hidden` removes reach AND rendering (no author rule sets `display` on these
+    // elements, so the UA sheet applies) — and the rotate stem follows the class.
+    // Hiding is still not disabling, which is why _startHandleDrag refuses a
+    // hidden handle as well.
+    for (const el of this.els.selectBox.querySelectorAll('.handle')) el.hidden = move;
+    this.els.hint.textContent = move ? MODE_HINT.move : MODE_HINT.resize;
   }
 
   /* ---------- export + batch ---------- */

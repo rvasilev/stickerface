@@ -31,6 +31,14 @@ v1 manual placement (images only — video is not supported):
   step. With nothing selected the click only arms the next drop, as before
 - **Selected-sticker pad** in the panel — nudge arrows with a 1 px / 10 px step and
   size −/+ — so a sticker resized too small to grab can still be moved and resized
+- **Move and Resize are modes, not always-on handles.** With a sticker selected, the
+  pad's first row decides what a press on it does: **Move** (the default) drags it
+  from anywhere inside the frame, with no handles in the way, and **Resize** brings
+  the 8 handles and the rotate handle back. `m` and `r` switch modes from the
+  keyboard. This is what makes a small sticker directly draggable: below ~32 CSS px
+  the handles' 32 px hit areas covered its whole interior, so a press meant to move
+  it landed on `handle:w` — the pad answered that with arrows, the mode answers it
+  with the gesture itself
 - Click to drop, drag to move, 8 resize handles (corners keep aspect,
   `Shift` frees it) and a rotate handle (`Shift` snaps to 15°)
 - Full-resolution export: PNG (default) or JPEG (quality 0.92), always
