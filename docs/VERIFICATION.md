@@ -65,6 +65,15 @@ target size, canvas backing vs CSS box vs DPR, decoded-emoji count, page height)
 for triage. `layout-probe` in particular reports the preview box vs the backing
 store's aspect ratio, stage vs viewport, thumbnails.
 
+`diag-export-encoder-probe.js` measures what this browser's canvas encoder actually
+produces: a deterministic 6 MP noisy canvas encoded as PNG, JPEG and WebP at four quality
+values, logging `{asked, q, got, fellBack, kb}`. It is the measurement the export-format
+plan rests on, and the reason PNG has no level control — PNG came back byte-identical
+(12,773,958 bytes) at every quality, because `toBlob`'s quality argument applies to lossy
+formats only. Measured here: JPEG 524/1370/2396/6119 KB and WebP 886/1520/2407/7343 KB at
+q 0.5/0.8/0.92/1.0. It cannot measure Safari's behaviour — no canvas encoder there at
+all — so that fallback is a unit-tested pure function instead.
+
 `diag-layers-paint-probe.js` asks whether the CANVAS follows the array order after a
 reorder, with no gesture involved at all: it adds the black and white squares,
 calls `store.moveTo` directly, and reports the pixel at their shared centre before
