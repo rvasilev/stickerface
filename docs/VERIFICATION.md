@@ -333,6 +333,16 @@ rather than letting "no change" read as success.
   the exact bytes returned the same name and green. Diagnose a live copy with
   `node scripts/stamp-sw.mjs --check` plus `caches.keys()` in the browser — the *name* tells you
   which build that copy is holding.
+- **`file://` does not "lose" the manifest — the `<link>` is right there and the browser says it
+  is missing anyway.** Opening `index.html` from disk produces the DevTools/Lighthouse complaint
+  "no manifest link url" while `document.querySelector('link[rel=manifest]').href` resolves
+  perfectly. Measured over CDP at `file:///…/index.html`: `Page.getAppManifest().url` comes back
+  `''`, with installability errors `not-from-secure-origin`,
+  `manifest-parsing-or-network-error`, `no-manifest`. Chrome will not read a `file://` document as
+  an installable app, and it reports that as a missing link. Served (`npm run serve`), the same
+  probe on the same file reports the manifest URL, no manifest errors and no installability
+  errors. So `file://` is not the "ES modules will not load" quirk — it is a total absence of
+  installability — and believing the message costs a debugging round in HTML that was never wrong.
 - **The E2E fixture's tan ellipse reads as a drop shadow — it is not one.**
   `scripts/make-fixture.py` paints a tan ellipse `(230,180,120)` at `500,280–700,480`, and
   the sample sticker lands on its lower arc. The result: ~20 CSS px of tan sits directly

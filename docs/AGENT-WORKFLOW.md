@@ -119,4 +119,6 @@ grep -aE "^(OC_EXIT|VERIFY_EXIT)=" /tmp/x.out             # outcomes
   URLs → the E2E harness is a hand-rolled CDP client (`websockets` + headless
   Chrome started with the URL as an argument).
 - `google-chrome-stable` is at `/usr/sbin/google-chrome-stable` (Chromium 157).
-- `file://` will not load ES modules — always serve over HTTP.
+- `file://` will not load ES modules — always serve over HTTP. It also stops being an app at
+  all: Chrome reports the manifest as missing (`no-manifest`) even though the `<link>` is
+  present, so use `npm run serve` before judging anything installable-related.

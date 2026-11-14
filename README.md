@@ -17,7 +17,7 @@ Open <https://rvasilev.github.io/stickerface/> — or run it locally:
 ```bash
 git clone https://github.com/rvasilev/stickerface
 cd stickerface
-python3 -m http.server 8000      # file:// does NOT work (ES modules)
+python3 -m http.server 8000      # file:// does NOT work: no ES modules, and no manifest/installability
 # → http://localhost:8000
 ```
 
