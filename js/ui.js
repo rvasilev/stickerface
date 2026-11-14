@@ -38,12 +38,15 @@ const PAD_HOLD_REPEAT_MS = 120;
 const PAD_SIZE_DOWN = 0.9;
 const PAD_SIZE_UP = 1.1;
 
-// The stage hint is the instruction painted on the photo. There are two, because
-// below FRAME_MIN_CHROME_PX the direct handles step aside and the panel's pad is
-// the remaining way to move a sticker that is too small to grab. The full string is
-// repeated in index.html deliberately: that is what shows before this module runs.
+// The stage hint is the instruction painted on the photo, and there are three of them:
+// the two gestures need the device's own verb (a phone told to "click" learns the wrong
+// thing — the same reason COACH_TEXT has two variants), and below FRAME_MIN_CHROME_PX
+// the direct handles step aside so the panel's pad is the remaining way to move a
+// sticker that is too small to grab. The mouse string is repeated in index.html
+// deliberately: that is what shows before this module runs.
 const CHROME_HINT = {
-  full: 'Click canvas to drop a sticker · drag a sticker to move it · its corner resizes · the dot above rotates',
+  mouse: 'Click to drop a sticker · drag to move · corner resizes · dot rotates',
+  touch: 'Tap to drop a sticker · drag to move · pinch to resize · twist to rotate',
   mini: 'Sticker too small to grab — use the panel\'s arrows and size buttons',
 };
 
@@ -86,6 +89,9 @@ class CanvasApp {
     // purpose: the view must never touch sticker geometry, the selection, or
     // the undo stack.
     this.view = { dx: 0, dy: 0, scale: 1 };
+    // Touch-first or pointer-first. ONE read, shared by the stage hint's verb and the
+    // coach mark's wording, so the two can never disagree about the device.
+    this._coarse = window.matchMedia('(pointer: coarse)').matches;
     // Whether the frame's chrome is currently stood down because the sticker is
     // smaller than a finger-sized handle (see _syncChrome). UI state like `view`,
     // out of the store for the same reason: crossing the threshold must never touch
@@ -1668,7 +1674,9 @@ class CanvasApp {
     // why _startHandleDrag refuses a hidden handle as well.
     for (const el of this.els.selectBox.querySelectorAll('.handle')) el.hidden = small;
     this.els.selectBox.classList.toggle('chrome-mini', small);
-    this.els.hint.textContent = small ? CHROME_HINT.mini : CHROME_HINT.full;
+    this.els.hint.textContent = small
+      ? CHROME_HINT.mini
+      : (this._coarse ? CHROME_HINT.touch : CHROME_HINT.mouse);
   }
 
   /* ---------- first-run coach mark ---------- */
@@ -1685,8 +1693,7 @@ class CanvasApp {
    */
   _maybeShowCoach() {
     if (this._coachSeen()) return;
-    const coarse = window.matchMedia('(pointer: coarse)').matches;
-    this.els.coachBody.textContent = coarse ? COACH_TEXT.touch : COACH_TEXT.mouse;
+    this.els.coachBody.textContent = this._coarse ? COACH_TEXT.touch : COACH_TEXT.mouse;
     this.els.coach.hidden = false;
   }
 
