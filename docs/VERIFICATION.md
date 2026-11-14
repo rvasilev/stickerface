@@ -42,6 +42,7 @@ probe must never read as success).
 | `tap-after-pan-probe.js` — tap-to-place still works after a pan / cancelled drag, and the contact count returns to zero | 8 | green |
 | `sticker-transform-probe.js` — two fingers whose centroid is inside the selected sticker's frame pinch-scale it (uniformly), twist-rotate it, and drag it — all in ONE undo step — while the photo does not pan; two fingers outside the frame still pan | 9 | green (2026-11-14) |
 | `handle-pinch-probe.js` — two fingers landing ON the handles (the rotate dot and the SE corner) still scale the sticker (the window-level pump; the only probe that reaches it) | 6 | green (touch) |
+| `pinch-shrink-probe.js` — a pinch that crosses `FRAME_MIN_CHROME_PX` (the only INWARD pinch in the suite): the shrink stays monotone past the crossing, the two contacts stay live and in transform mode throughout, and the chrome does NOT stand down under a live contact — then IS gone once they lift | 3 | green (2026-11-14, touch) |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 | `install-probe.js` — the app is installable: the manifest is linked and parses, it carries the members the install surfaces read, every declared icon downloads and DECODES at the size it claims, the apple-touch-icon is 180×180, and all three theme-colour declarations match the colour the app paints | 7 (6 page-side + 1 from the harness) | green (2026-11-14) |
 | `offline-probe.js` — with the origin server stopped: the worker is genuinely offline (asserted on the worker, not just the page), it serves the shell from its own cache, all 76 emoji are precached, the stale `sf-v0` is gone, a seeded neighbour's cache is untouched, a first install offers no update bar, a sticker is placed and exported, and every request stayed same-origin | 12 (11 page-side + 1 from the harness) | green (2026-11-14) |
@@ -295,6 +296,28 @@ rather than letting "no change" read as success.
   criterion ("the handles are hidden at 22 px") passes against an implementation that
   never brings them back — three-handle-probe asserts the down AND the return (the pad
   grows the sticker to 63 px) and is guarded on each crossing having actually happened.
+- **A lost input, not a broken app: a red PAIR from one multi-drag probe.** In a
+  back-to-back loop of gates (no sleep between runs) `rotate-grab-probe.js` once came back
+  **5/7** with `wrapAcrossPiDoesNotSpin` and `rotateDragIsOneUndoStep` red together — the
+  third drag of three, and its undo sibling — while the same probe passed **7/7 on four
+  consecutive standalone runs** and again inside the next full loop. A dropped pointer
+  sequence on that one drag explains exactly that pair (no rotation AND no undo entry);
+  nothing else in the probe moved. **The signature is a pair of reds that share one
+  gesture.** Attribution is by re-run: `E2E_PROBE=<probe> npm run e2e` alone, and a `sleep 4`
+  between runs in any hand-rolled loop. Mechanism unproven — the shape is what is recorded,
+  not a cause. (`emoji-swap-probe.js` flaked in the same loop with no tally at all; that is
+  the older, separately-recorded shape.)
+- **A probe whose aim is resolved from the element under test cannot measure that
+  element changing.** `pinch-shrink-probe.js` pinches the sticker below the chrome
+  threshold, which makes `_syncChrome` hide the handles it is holding — and a hidden
+  element's `getBoundingClientRect` is 0×0, so a live resolver teleports both contacts
+  to the viewport origin and the sticker collapses to its size floor in one step. Capture
+  the geometry once, at arm time, and drive the gesture from those fixed points: the
+  probe then measured the same monotone shrink (56.2 → 14 px) whether the chrome hid
+  mid-gesture or not, which is the honest answer to "does the pinch survive?" — it DOES,
+  on Chromium 157 (contacts alive, `transforming` set, no cancellation). What the probe
+  does discriminate is the rule itself: `chromeStaysUpWhileAGestureIsLive` is red on the
+  build that flips the chrome mid-gesture and green on the build that waits.
 - **A closed `<details>` does not zero its child's rect.** Chromium hides the content
   with `::details-content { content-visibility: hidden }`, so `#layer-list` kept a
   142px bounding rect and read as "visible" while the section was collapsed. Measure

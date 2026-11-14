@@ -393,11 +393,10 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M8** | selected-sticker pad: nudge arrows + a 1 px/10 px step + size −/+, so a sticker too small to grab can still be moved and resized | `tests/e2e/pad-probe.js` = 7/7, every M1–M7 gate green | **done** (2026-11-14, delegated; the gate itself corrected once) |
 | **M9** | Move/Resize modes: what a press on the selected sticker DOES is explicit, chosen from the pad's mode row — so the 8 resize handles and the rotate handle are Resize-mode chrome, not always-on | `tests/e2e/mode-probe.js` = 10/10, every M1–M8 gate green | **done** (2026-11-14) — **superseded by M13** |
 | **M10** | first-run coach mark: the first photo explains the gesture model (and names the Move/Resize row) once per browser — device-appropriate wording, dismissible by its button or by simply starting to use the canvas, and never repeated | `tests/e2e/coach-probe.js` = 9/9, every M1–M9 gate green | **done** (2026-11-14) |
+| **M13** | three-handle chrome, no mode: the selected sticker carries ONE resize handle (SE) + ONE rotate dot, and its body is the move handle — with a `pointer-events: none` move mark at the centre as the signpost. The M9 mode row, its `m`/`r` keys and its two hint strings are deleted; the chrome hides itself below 36 CSS px (the measured free-at-36/blocked-at-30 boundary) and returns when the sticker grows, and never mid-gesture. Desktop gets a `move` cursor over a sticker | `tests/e2e/three-handle-probe.js` = 11/11, `tests/e2e/pinch-shrink-probe.js` = 3/3; `handles-probe`, `selection-probe`, `rotate-grab-probe`, `pad-probe`, `handle-pinch-probe`, `coach-probe` and the journey gate all green; `mode-probe.js` retired | **done** (2026-11-14) |
 
 M11 (installable) and M12 (offline) shipped after M10; their records are in the status
 log below rather than as rows here.
-
-| **M13** | three-handle chrome, no mode: the selected sticker carries ONE resize handle (SE) + ONE rotate dot, and its body is the move handle — with a `pointer-events: none` move mark at the centre as the signpost. The M9 mode row, its `m`/`r` keys and its two hint strings are deleted; the chrome hides itself below 36 CSS px (the measured free-at-36/blocked-at-30 boundary) and returns when the sticker grows. Desktop gets a `move` cursor over a sticker | `tests/e2e/three-handle-probe.js` = 11/11; `handles-probe`, `selection-probe`, `rotate-grab-probe`, `pad-probe`, `handle-pinch-probe`, `coach-probe` and the journey gate all green; `mode-probe.js` retired | **done** (2026-11-14) |
 
 M3 shipped as a hand-rolled CDP harness rather than Playwright: no Playwright is
 installed on the build box and the Hermes CDP tool refuses loopback URLs, so
@@ -426,10 +425,15 @@ It is a real browser, a real file upload and real pixel assertions — see
   `diag-small-sticker-probe` already bracketed the right number, so the chrome steps
   aside below 36 and the tiny sticker keeps the body drag (11/11 asserts a 22 px
   sticker drags by −8.75 px in y with no resize and one undo entry).
-  (2) **The flip is deferred while a drag is live.** A resize drag crosses the
-  threshold mid-gesture and hiding the element under a captured pointer is how a
-  pointer changes target, so `_syncChrome` writes only when the state flips AND no
-  drag is open — the handles step aside on the frame after release.
+  (2) **The flip is deferred while any gesture is live** (`this.drag || this._xform ||
+  this._pan`). A resize drag crosses the threshold mid-gesture, and so does a
+  two-finger pinch — the handles in that case are the elements the touch captured. The
+  chrome steps aside on the frame after the gesture ends, never under the contact using
+  it. Measured rather than assumed: `pinch-shrink-probe.js` (the only INWARD pinch in
+  the suite) shows the pinch itself does NOT freeze when a handle is hidden under it
+  (56.2 → 14 px, contacts alive, `transforming` set, no cancellation on Chromium 157),
+  so the rule is "the chrome must not redecorate itself under a live finger", and that
+  criterion is red on the build that flips mid-gesture and green on this one.
   (3) **The move mark is not a control.** It is `pointer-events: none` and the probe
   asserts `document.elementFromPoint` at its own centre returns the CANVAS; a signpost
   that swallowed the press it points at would be M9's defect wearing new paint. The
@@ -449,6 +453,22 @@ It is a real browser, a real file upload and real pixel assertions — see
   `.mode-move`/`.mode-resize` classes and the seven unused handle rules are deleted, as
   is the pad's Mode row — `_setEditMode`/`_applyEditMode` collapse into one
   `_syncChrome(frameTooSmall)`.
+
+  **Audit round (same day, after the gates were green — the change was audited as a
+  change, not as a success story).** Five things, four of them slop: `index.html`'s
+  coach-mark comment still explained the deleted Move/Resize row; the `.picker` height
+  comment still justified itself by "the pad gained a Mode row"; `three-handle-probe.js`
+  carried an unused `minSide()` helper; the two `.chrome-mini` `display: none` rules were
+  one decision written twice; and the PLAN milestone table had a paragraph wedged between
+  the M10 and M13 rows, which splits a markdown table into two. The fifth was real: the
+  deferral covered `this.drag` only, so a PINCH that crossed the threshold still hid the
+  handles under the two fingers driving them — the same hazard class the drag case was
+  deferred for. `_syncChrome` now refuses to flip while any gesture is live, and
+  `pinch-shrink-probe.js` (new gate, 3/3, wired into CI) is the criterion that fails
+  without it. Writing that probe took three aim corrections, all recorded in
+  `docs/VERIFICATION.md`; the third is the generalizable one — a probe whose aim is
+  resolved from the element under test cannot measure that element changing, because a
+  hidden element's rect is 0×0.
 
 - **2026-11-14** — M12: offline. `sw.js` precaches the shell, all 76 emoji and the icons;
   scope and cleanup come from its own location, so a GitHub Pages subpath works and a
