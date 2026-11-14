@@ -318,6 +318,15 @@ rather than letting "no change" read as success.
   and never in the browser. If that test is removed, the feature ships visibly
   broken on one engine with no gate catching it.
 
+- **Touch input in a probe's own touch sub-phase, on this machine.** `layers-probe.js`'s
+  `dragWorksWithTouch` reads `beforeTouchDrag` / `afterTouchDrag` snaps that local
+  Chromium never delivers: the touch steps run (the probe's `points` are recorded) but
+  that phase's `read` results come back null, so the criterion fails 3/3 locally while
+  CI's runner passes it. Measured 2026-11-14 against the HEAD *before* the coach mark
+  (three runs, deterministic), so it is pre-existing and environment-specific — not a
+  regression from any feature. The mouse sibling `dragReordersPixels` covers the same
+  reorder path behaviourally; treat a local `layers-desktop` red as this gap, not a
+  broken feature.
 - **Handle drags that leave the handle.** No gate drags a handle far enough off the
   handle to re-target `pointermove`, so both hazards documented in `_startHandleDrag` are
   unverified. Mutation-tested 2026-11-14: keying the handle off `ev.target` instead of the
