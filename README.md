@@ -31,9 +31,11 @@ StickerFace is installable — no store, no account, no download:
   it opens as a web app straight away, with no further setup), or *Add to Dock* on the Mac.
 - **Firefox:** the menu's *Install* adds it as a shortcut.
 
-It then opens like any other app: its own icon, no browser chrome. The icon is
-`icons/icon.svg`, and the PNGs the install surfaces use are committed — regenerated only
-when the artwork changes (`scripts/make-icons.sh`).
+It then opens like any other app: its own icon, no browser chrome. And it keeps working with
+no signal at all — the whole app (shell, every emoji, every icon) is cached on first visit, so
+a plane, a train, or a dead wifi connection changes nothing. The icon is `icons/icon.svg`, and
+the PNGs the install surfaces use are committed — regenerated only when the artwork changes
+(`scripts/make-icons.sh`).
 
 ## Features
 

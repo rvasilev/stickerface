@@ -473,3 +473,29 @@ a { color: var(--accent); }
   font-size: 0.78rem;
   line-height: 1.5;
 }
+
+/* Update bar. Same `[hidden]` discipline as the coach mark and the file button: this rule
+   sets `display`, and an author rule that sets `display` outranks the UA's
+   `[hidden] { display: none }` — which is how this app once shipped seven elements that were
+   "hidden" and rendered anyway. Hence `:not([hidden])`. */
+.update-bar {
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--accent);
+}
+.update-bar:not([hidden]) { display: flex; }
+.update-text { margin: 0; font-size: 0.85rem; }
+.update-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+.update-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

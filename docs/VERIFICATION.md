@@ -44,6 +44,7 @@ probe must never read as success).
 | `handle-pinch-probe.js` — two fingers landing ON the `n`/`s` handles still scale the sticker (the window-level pump; the only probe that reaches it) | 6 | green (touch) |
 | `zoom-probe.js` — focal image pinch-zoom, clamped, view-only (M7) | 9 | green |
 | `install-probe.js` — the app is installable: the manifest is linked and parses, it carries the members the install surfaces read, every declared icon downloads and DECODES at the size it claims, the apple-touch-icon is 180×180, and all three theme-colour declarations match the colour the app paints | 7 (6 page-side + 1 from the harness) | green (2026-11-14) |
+| `offline-probe.js` — with the origin server stopped: the worker is genuinely offline (asserted on the worker, not just the page), it serves the shell from its own cache, all 76 emoji are precached, the stale `sf-v0` is gone, a seeded neighbour's cache is untouched, a first install offers no update bar, a sticker is placed and exported, and every request stayed same-origin | 12 (11 page-side + 1 from the harness) | green (2026-11-14) |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
 | `rotate-grab-probe.js` — the rotate handle rotates BY the drag: a 2 px move off the grab is ~0°, a quarter turn is 90°, a sweep across ±PI stays that sweep (not a full turn), Shift snaps to 15°, and one drag is ONE undo step | 7 | green (2026-11-14) |
@@ -122,6 +123,29 @@ nothing mid-run). Nobody noticed until now because nothing called CDP *after* th
 Anyone adding such work — the installability check does, and the offline phase will — must
 use `send_fresh()` in `run.py`, which dials a fresh connection to the same page target. The
 old socket's `close_code` is printed on every installability run as evidence.
+
+**An offline test is only as good as what it cannot route around.** Three layers each made the
+first version of the offline gate pass while measuring nothing: a runtime `cache.put` in the
+worker (the harness's own online reload re-cached the very file whose absence was under test),
+Chrome's HTTP and memory cache (which serves an offline navigation regardless of
+`ignoreCache` or `clearBrowserCache`), and the decisive one — **CDP network emulation is
+per-target**, so emulating on the page left the *service worker* online, proxying every request
+to the live server. The phase therefore stops the origin server, and the probe asserts
+`workerIsOffline` before anything else: a deliberately uncached request must come back as the
+handler's 504, not a 404. `shellServedByWorker` then requests `index.html` with
+`cache: 'no-store'` — worker-intercepted, browser-cache-proof — which is the only assertion in
+that probe that no cache other than the worker's can satisfy. Both were watched failing under
+mutation, which is the point: a green offline run from the earlier version proved nothing.
+
+**Two known gaps in this gate, recorded rather than implied.** (1) The *update* path — a bumped
+cache version, the bar appearing, the click reloading into the new worker — is not exercised:
+that needs a second, different `sw.js` served mid-run, and the harness has one origin state per
+run. `updateBarHiddenByDefault` covers the first-install half (no bar appears) and
+`staleCacheCleaned` covers the cleanup half; the transition between them is untested. (2) The
+offline phase stops the origin server, so it is **local-only**: against a deployed URL the worker
+can always reach the origin, `workerIsOffline` fails, and that failure is correct — the harness
+cannot take the real server down, so it cannot prove offline for a remote origin. Live checks
+therefore cover installability and the cached state, not the offline boot.
 
 ### Real input, not synthetic events
 

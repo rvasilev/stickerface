@@ -98,11 +98,11 @@ not 12/12; and "11 probes" understates the real count (26 probe files, 21 of the
 
 
 
-## Installable: still zero dependencies (M11)
+## Installable and offline: still zero dependencies (M11, M12)
 
-Nothing in M11 adds a runtime dependency. A web app manifest and its icons are platform
-features, not packages: `dependencies` stays empty and the app stays a static site with no
-build step.
+Nothing in M11 or M12 adds a runtime dependency. A web app manifest, its icons, and a service
+worker are platform features, not packages: `dependencies` stays empty and the app stays a
+static site with no build step.
 
 Dev tooling, one-off: **`rsvg-convert`** (Debian/Ubuntu: `librsvg2-bin`) rasterises
 `icons/*.svg` into the committed PNGs, via `scripts/make-icons.sh`, run by hand when the

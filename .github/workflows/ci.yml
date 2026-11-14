@@ -158,6 +158,21 @@ jobs:
           E2E_PROBE: tests/e2e/install-probe.js
         run: bash scripts/e2e.sh
 
+      # Offline is the app's core promise, and this is the only gate that can see it. It
+      # reloads with the network emulated off, then evaluates a SECOND probe from memory —
+      # a cache-busted fetch of that probe cannot work offline by design. Before that it
+      # clears every cache and unregisters every worker, then seeds a stale 'sf-v0' and a
+      # neighbour's 'other-repo-v1' ahead of the reload that installs the worker: activate()
+      # runs once, so that ordering is the only way the cleanup rule is observable at all.
+      # Without the clear, the persistent browser profile lets the previous run's cache mask
+      # a change to what gets precached — verified by mutation, see docs/VERIFICATION.md.
+      - name: Gate — offline boots, places and exports from cache, touches no other origin
+        env:
+          E2E_INSTALLABILITY: "1"
+          E2E_PROBE: tests/e2e/install-probe.js
+          E2E_PROBE_OFFLINE: tests/e2e/offline-probe.js
+        run: bash scripts/e2e.sh
+
       - name: Gate — two-finger sticker transform (pinch, twist, drag) inside the frame
         env:
           E2E_MOBILE: "1"

@@ -244,6 +244,46 @@ The icons are **committed artifacts**, generated once by `scripts/make-icons.sh`
 committed SVGs. That is the same arrangement as `js/emoji.js` and `scripts/fetch-emoji.mjs`:
 nothing is generated at deploy time and the repository stays buildless.
 
+## Offline (M12)
+
+`sw.js` sits at the app root so its default scope is the whole app. Not a style choice:
+`Service-Worker-Allowed` cannot be set on GitHub Pages (correctly — one repository's worker
+must not control another's paths), so the scope has to come from the script's own location.
+Cache cleanup is scoped the same way, to the `sf-` prefix: `activate()` runs on an origin
+shared with every other project under `user.github.io`, and a worker that deletes "every cache
+I do not recognise" wipes a neighbour's offline data. The gate seeds a fake neighbour to prove
+the filter holds.
+
+**Precache everything, at install.** The picker fetches emoji on demand, so
+cache-on-first-use would leave a freshly installed app broken offline for every face the user
+never happened to pick while online — the precise failure the feature exists to prevent.
+
+**It never reloads on its own.** The editor holds the photo and the stickers in memory only
+(there is no persistence yet), so an automatic update would destroy unexported work. A new
+version therefore waits — no `skipWaiting()` on install — and the update bar asks. `js/pwa.js`
+reloads only on `controllerchange` after that click, because posting `SKIP_WAITING` and
+reloading in the same tick sometimes reloads into the *old* worker, which looks exactly like
+the update not working.
+
+**Verifying offline takes two probes and a cleared profile.** A reload is the only thing that
+proves a navigation is served from cache, and a reload destroys the first probe's state — so
+the criteria come from a second probe, whose source is captured while still online and
+evaluated from memory (a cache-busted fetch of a probe cannot work offline by design). The
+harness also clears every cache and unregisters every worker first, then seeds a stale `sf-v0`
+and a neighbour *before* the reload that installs the worker: `activate()` runs once, so that
+ordering is the only way the cleanup rule is observable, and without the clear the persistent
+browser profile lets the previous run's cache mask a change to what gets precached. Both facts
+were established by mutation, not assumption — see `docs/VERIFICATION.md`.
+
+**An offline gate has to defeat every cache in its own chain, including its own.** Three layers
+each made the first version pass while measuring nothing: a runtime `cache.put` in the worker
+(the harness's own online reload re-cached the file whose absence was being tested — removed, so
+what works offline is exactly the precache list and the list is therefore falsifiable), Chrome's
+HTTP/memory cache, and the decisive one — **CDP network emulation is per-target**, so emulating
+on the page left the *worker* online and it proxied everything to the live server, which is why
+the app "booted offline" no matter what the precache contained. The harness now stops the origin
+server, and the probe asserts the worker's own connectivity before trusting anything it reports.
+
 Two invariants are asserted rather than trusted. `tests/manifest.test.js` reads each icon's
 real PNG header and compares it to the declared `sizes`, so a `sizes` that lies about the
 file fails the unit gate; and it asserts the manifest's `theme_color` *and*

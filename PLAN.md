@@ -389,6 +389,27 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — M12: offline. `sw.js` precaches the shell, all 76 emoji and the icons;
+  scope and cleanup come from its own location, so a GitHub Pages subpath works and a
+  neighbouring app's caches survive; `js/pwa.js` offers an update without ever reloading on its
+  own (the editor is in-memory, so a reload would destroy unexported work). The gate
+  (`tests/e2e/offline-probe.js`) was committed RED first — **9/17**, with every offline
+  criterion failing and `noCrossOriginRequests` already holding — then green at **20/20** with
+  `workerIsOffline: true` and the shell served from the worker's own cache. Four mutations were
+  watched red: unscoped cleanup → `foreignCacheUntouched`; an emoji dropped from the list →
+  `emojiCacheComplete` (and the unit gate); the shell dropped → `shellServedByWorker` and
+  `appBootedOffline`; an update bar that renders → `updateBarHiddenByDefault`. A fifth finding
+  was in the gate itself: a criterion renamed in its assertion but not in its declaration sat
+  permanently false, so "green" was 17/18 — the failure a declared-false-first discipline
+  invites when the declaration is left behind. Reaching that point exposed **three cache layers
+  that had been hiding the truth**: my own runtime `cache.put` (the harness's online reload
+  re-cached the very file whose absence was under test), Chrome's HTTP/memory cache (which
+  serves an offline navigation no matter how the harness clears or bypasses), and the decisive
+  one — **CDP network emulation is per-target, so the service worker was never offline and had
+  been proxying every request to the live server all along**. The phase now stops the origin
+  server and the probe asserts the worker's own connectivity before trusting anything it says.
+  Unit 156 → 159. Also corrected: 76 emoji SVGs (77 files under `assets/emoji/` — the 77th is
+  `ATTRIBUTION.md`) and a 1020 KB payload, not 77 and 952 KB.
 - **2026-11-14** — M11: installable. `manifest.json` + committed icons. The gate
   (`tests/e2e/install-probe.js`) was committed RED first — **0/7**, `rc=1`, and the
   browser's own verdict `no-manifest` — then green after the wiring: **7/7** with

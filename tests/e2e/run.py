@@ -22,6 +22,7 @@ import asyncio
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 import websockets
@@ -582,6 +583,153 @@ async def main(probe_path, url_match="8123"):
             print("=== INSTALLABILITY ERRORS ===")
             for e in installability:
                 print("  " + str(e))
+
+    # Optional offline phase: prove the app BOOTS from its own cache with no network at all.
+    #
+    # Two constraints shape this, both discovered by reading the harness rather than assumed:
+    #  * A reload is the only thing that proves a navigation is served from cache, and a
+    #    reload destroys the first probe's page state — so the criteria come from a SECOND
+    #    probe, evaluated fresh afterwards.
+    #  * That second probe CANNOT be loaded by fetch once the network is cut, so its source
+    #    is captured while still online and evaluated from memory. (The first probe's own
+    #    loader is a `fetch(probe + '?cb=' + Date.now())`; offline that is a guaranteed
+    #    failure, and a cache-busted URL is by design not in the cache.)
+    #
+    # One connection for the whole phase, on purpose: it must stay open to collect Network
+    # events, and the harness's long-lived socket is already closed by this point (see
+    # send_fresh). It is how "nothing left the origin" is checked.
+    offline_path = os.environ.get("E2E_PROBE_OFFLINE")
+    if offline_path:
+        try:
+            async with websockets.connect(target["webSocketDebuggerUrl"], max_size=64 << 20) as ows:
+                onet = [0]
+                net = []
+
+                async def osend(method, params=None, timeout=30):
+                    onet[0] += 1
+                    mid = onet[0]
+                    await ows.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+                    while True:
+                        msg = json.loads(await asyncio.wait_for(ows.recv(), timeout=timeout))
+                        if msg.get("id") == mid:
+                            return msg
+                        if msg.get("method") == "Network.requestWillBeSent":
+                            net.append(msg["params"]["request"]["url"])
+
+                await osend("Network.enable")
+
+                async def ev(expression, timeout=30, await_promise=True):
+                    got = await osend("Runtime.evaluate", {
+                        "expression": expression, "awaitPromise": await_promise,
+                        "returnByValue": True, "timeout": timeout * 1000,
+                    })
+                    return got.get("result", {}).get("result", {}).get("value")
+
+                # Deterministic start, on purpose. Chrome's harness profile persists between
+                # runs, so without this the PREVIOUS run's cache masks any change to what gets
+                # precached: a mutation that removes the shell from the list then passes while
+                # doing nothing. Cleared and unregistered, the install below is a genuine
+                # first install.
+                await ev("(async () => {"
+                         " await Promise.all((await caches.keys()).map((n) => caches.delete(n)));"
+                         " await Promise.all((await navigator.serviceWorker.getRegistrations())"
+                         "   .map((r) => r.unregister()));"
+                         " return true; })()", timeout=20)
+
+                # Seed BEFORE the worker's first activation, or the cleanup rule cannot be
+                # observed at all: activate() runs once, and a cache created after it is never
+                # considered. Both seeds exist to be deleted or spared by that single cleanup —
+                # a stale version of this app (must go) and a neighbouring app on the same
+                # origin (must stay; user.github.io hosts many, so an unscoped delete wipes a
+                # neighbour's offline data).
+                await ev("(async () => {"
+                         " const stale = await caches.open('sf-v0');"
+                         " await stale.put('/stale', new Response('an older version'));"
+                         " const neighbour = await caches.open('other-repo-v1');"
+                         " await neighbour.put('/other', new Response('a neighbouring app'));"
+                         " return true; })()", timeout=15)
+
+                # Capture the offline probe's source while the network is still up. Wrapped in
+                # an async IIFE: top-level await is illegal in a classic script, which is why
+                # the main probe load above is wrapped too.
+                src = await ev(
+                    f"(async () => (await (await fetch('{offline_path.lstrip('/')}?cb=' + Date.now(),"
+                    " {cache: 'no-store'})).text()))()", timeout=20)
+
+                # Reload: with the state cleared, this is the worker's FIRST install, and its
+                # activate() sees both seeded caches.
+                await osend("Page.reload", {"ignoreCache": False})
+
+                # Precondition, not a sleep: wait until the worker is actually installed and
+                # controlling the page, or say so. The whole precache is ~950 KB.
+                ready = await ev(
+                    "Promise.race([navigator.serviceWorker.ready.then(() => 'ready'),"
+                    " new Promise((r) => setTimeout(() => r('TIMEOUT'), 15000))])", timeout=20)
+                print(f"=== offline phase: service worker {ready} ===")
+
+                # Network emulation is PER-TARGET, and this connection is attached to the page.
+                # The service worker is a different target, so it kept reaching the live server —
+                # answering the page's requests with real responses, which made the whole offline
+                # test measure nothing: the app "booted offline" because the worker proxied to the
+                # server, and a shell removed from the precache list still served fine. Stopping
+                # the server is the one condition nothing can route around. The worker's own
+                # connectivity is asserted in the probe (workerIsOffline), so this can never
+                # silently regress into the same trap.
+                port = urllib.parse.urlsplit(target["url"]).port
+                killer = await asyncio.create_subprocess_exec(
+                    "fuser", "-k", "-n", "tcp", str(port),
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )
+                await killer.wait()
+                await osend("Network.clearBrowserCache")
+                await osend("Network.emulateNetworkConditions", {
+                    "offline": True, "latency": 0, "downloadThroughput": -1, "uploadThroughput": -1,
+                })
+                # A marker the offline probe checks: if it survives the reload below, the
+                # navigation never committed (Chrome keeps the current document when a reload
+                # fails) and the probe would be measuring the ONLINE-loaded page instead.
+                await ev("window.__sfPreOffline = true", await_promise=False)
+                await osend("Page.reload", {"ignoreCache": True})
+                await asyncio.sleep(2.0)
+
+                body = await ev(f"(async () => await eval({json.dumps(src)}))()", timeout=60)
+                parsed = json.loads(body) if body else {}
+                if body is None:
+                    print("=== offline phase: the probe produced NO result ===")
+                print("=== offline phase ===")
+                for step in parsed.get("steps", []):
+                    print_step(step)
+                for e in parsed.get("errors", []):
+                    print("PHASE ERROR: " + e)
+                    failures.append(f"offline phase: {str(e)[:200]}")
+                for k, v in parsed.items():
+                    if isinstance(v, bool):
+                        checks[k] = v
+                # This phase's CONTRACT is to report booleans, so an absence is failure — not
+                # the "steps without criteria" shape that driver phases (drag/rotate/touch)
+                # legitimately have. Without this, a probe that never ran at all contributes
+                # nothing and the run still prints a tidy tally: a silent shortfall, which is
+                # exactly how a phase goes missing without anyone noticing.
+                if not any(isinstance(v, bool) for v in parsed.values()):
+                    failures.append("offline phase contributed no criteria — the probe did not run")
+
+                # Nothing may leave the origin. The expected origin comes from the TARGET url,
+                # not from the page: before a worker exists the offline reload fails, Chrome
+                # shows its own error page, and that page's location.origin is "null" — which
+                # makes every real URL look cross-origin. `data:`/`blob:` have no origin to
+                # compare, so http(s) only.
+                parts = target["url"].split("/")
+                expected_origin = "/".join(parts[:3]) if len(parts) >= 3 else target["url"]
+                foreign = sorted({u for u in net if u.startswith("http") and not u.startswith(expected_origin)})
+                checks["noCrossOriginRequests"] = not foreign
+                if foreign:
+                    print("=== CROSS-ORIGIN REQUESTS ===")
+                    for u in foreign[:10]:
+                        print("  " + u)
+                print(f"=== offline phase: {len(net)} request(s) seen, expected origin "
+                      f"{expected_origin}, all same-origin: {not foreign} ===")
+        except Exception as exc:
+            failures.append(f"offline phase: {type(exc).__name__}: {exc}")
 
     print("=== checks ===")
     for k, v in checks.items():
