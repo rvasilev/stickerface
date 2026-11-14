@@ -88,16 +88,14 @@
       </div>
       <div class="canvas-wrap" id="canvas-wrap" hidden>
         <canvas id="stage-canvas" aria-label="Photo with stickers. Click to drop a sticker; drag stickers to move them."></canvas>
-        <!-- Selection chrome (positioned by JS) -->
+        <!-- Selection chrome (positioned by JS). Two interactive handles — one
+             resize, one rotate — plus a decorative move mark: the BODY is the move
+             handle, so the mark is a signpost, not a target (`pointer-events: none`,
+             asserted by the probe). There is no mode to switch: where a press lands
+             decides what it does. -->
         <div class="select-box" id="select-box" hidden aria-hidden="true">
-          <button type="button" class="handle" data-handle="nw" aria-label="Resize north-west"></button>
-          <button type="button" class="handle" data-handle="n" aria-label="Resize north"></button>
-          <button type="button" class="handle" data-handle="ne" aria-label="Resize north-east"></button>
-          <button type="button" class="handle" data-handle="e" aria-label="Resize east"></button>
-          <button type="button" class="handle" data-handle="se" aria-label="Resize south-east"></button>
-          <button type="button" class="handle" data-handle="s" aria-label="Resize south"></button>
-          <button type="button" class="handle" data-handle="sw" aria-label="Resize south-west"></button>
-          <button type="button" class="handle" data-handle="w" aria-label="Resize west"></button>
+          <span class="move-mark" aria-hidden="true"></span>
+          <button type="button" class="handle" data-handle="se" aria-label="Resize"></button>
           <button type="button" class="handle rotate" data-handle="rotate" aria-label="Rotate"></button>
         </div>
         <!-- First-run coach mark. The gesture model is unusual (one pointer works the
@@ -117,7 +115,7 @@
           </div>
         </aside>
       </div>
-      <p class="stage-hint" id="stage-hint" hidden>Click canvas to drop a sticker · drag to move · R shows resize handles</p>
+      <p class="stage-hint" id="stage-hint" hidden>Click canvas to drop a sticker · drag a sticker to move it · its corner resizes · the dot above rotates</p>
     </main>
 
     <!-- Right panel -->
@@ -125,16 +123,6 @@
       <section id="sticker-pad" aria-labelledby="pad-heading" hidden>
         <h2 id="pad-heading">Selected sticker</h2>
         <div class="pad">
-          <!-- The modification toolbar: what a gesture on the sticker DOES. Move is
-               the default, so the 8 resize handles and the rotate handle are not
-               always-on chrome — they belong to Resize mode, and at or below ~32
-               CSS px their hit areas otherwise cover the sticker's whole interior
-               and make it impossible to move by dragging it. -->
-          <div class="pad-group" role="group" aria-label="Sticker mode">
-            <span class="pad-label">Mode</span>
-            <button type="button" id="mode-move" aria-pressed="true" title="Move the sticker (M)">Move</button>
-            <button type="button" id="mode-resize" aria-pressed="false" title="Resize and rotate (R)">Resize</button>
-          </div>
           <div class="pad-group" role="group" aria-label="Nudge sticker">
             <span class="pad-label">Nudge</span>
             <button type="button" id="pad-nudge-left" aria-label="Nudge left">←</button>

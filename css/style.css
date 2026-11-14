@@ -155,6 +155,9 @@ kbd {
 }
 .canvas-wrap canvas[data-dragging] { cursor: grabbing; }
 .canvas-wrap canvas[data-panning] { cursor: grabbing; }
+/* Over a sticker the body IS the move handle, so the cursor has to say so — it is
+   the only desktop affordance for the drag (see js/ui.js, the hover hit test). */
+.canvas-wrap canvas[data-hover] { cursor: move; }
 
 .select-box {
   position: absolute;
@@ -175,8 +178,31 @@ kbd {
   opacity: 0.75;
 }
 /* The rotate stem exists only when the rotate handle does: a stem drawn up to
-   nothing reads as a stray artefact. Move mode hides both. */
-.select-box.mode-move::after { display: none; }
+   nothing reads as a stray artefact. The chrome hides as a unit when the frame is
+   too small for a finger-sized target (see js/ui.js: FRAME_MIN_CHROME_PX). */
+.select-box.chrome-mini::after { display: none; }
+/* The move mark: a signpost, never a target. The BODY is the move handle, so this
+   is `pointer-events: none` and the probe asserts a press at its centre reaches the
+   canvas. The arrow is an inline SVG — a glyph would be at the mercy of whatever
+   font the OS resolves it to, and this stays a white arrow on a dark disc over any
+   photo. Hidden with the handles: at that size it would sit on the whole sticker. */
+.select-box .move-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border-radius: 50%;
+  background-color: rgba(20, 22, 26, 0.55);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l3.5 4h-2v5h-3V6h-2zM12 22l-3.5-4h2v-5h3v5h2zM2 12l4-3.5v2h5v3H6v2zM22 12l-4 3.5v-2h-5v-3h5v-2z' fill='%23ffffff'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.select-box.chrome-mini .move-mark { display: none; }
 .select-box .handle {
   position: absolute;
   /* SMALL MARKER, FINGER-SIZED TARGET: the visible square is 12 CSS px; the
@@ -200,14 +226,7 @@ kbd {
   inset: -10px;
   background: transparent;
 }
-.handle[data-handle='nw'] { left: 0; top: 0; }
-.handle[data-handle='n']  { left: 50%; top: 0; cursor: ns-resize; }
-.handle[data-handle='ne'] { left: 100%; top: 0; cursor: nesw-resize; }
-.handle[data-handle='e']  { left: 100%; top: 50%; cursor: ew-resize; }
 .handle[data-handle='se'] { left: 100%; top: 100%; cursor: nwse-resize; }
-.handle[data-handle='s']  { left: 50%; top: 100%; cursor: ns-resize; }
-.handle[data-handle='sw'] { left: 0; top: 100%; cursor: nesw-resize; }
-.handle[data-handle='w']  { left: 0; top: 50%; cursor: ew-resize; }
 .handle.rotate {
   left: 50%;
   top: -22px;

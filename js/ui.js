@@ -38,22 +38,28 @@ const PAD_HOLD_REPEAT_MS = 120;
 const PAD_SIZE_DOWN = 0.9;
 const PAD_SIZE_UP = 1.1;
 
-// The stage hint follows the mode, so the instruction painted on the photo never
-// names a control the user cannot currently see. The Move string is repeated in
-// index.html deliberately: that is what shows before this module runs, and Move
-// is the default.
-const MODE_HINT = {
-  move: 'Click canvas to drop a sticker · drag to move · R shows resize handles',
-  resize: 'Drag a corner to resize (Shift = free) · the handle rotates (Shift = 15° snap) · M to move',
+// The stage hint is the instruction painted on the photo. There are two, because
+// below FRAME_MIN_CHROME_PX the direct handles step aside and the panel's pad is
+// the remaining way to move a sticker that is too small to grab. The full string is
+// repeated in index.html deliberately: that is what shows before this module runs.
+const CHROME_HINT = {
+  full: 'Click canvas to drop a sticker · drag a sticker to move it · its corner resizes · the dot above rotates',
+  mini: 'Sticker too small to grab — use the panel\'s arrows and size buttons',
 };
+
+// Below this the SE handle's 32 px hit area reaches the frame's centre and the
+// chrome would block the very drag it is drawn around. Measured with
+// diag-small-sticker-probe: free at 36 CSS px, blocked at 30 — so a small sticker
+// keeps the BODY as its move handle and the handles hide until it grows back.
+const FRAME_MIN_CHROME_PX = 36;
 
 // The first-run coach mark, shown once per browser. Two variants because the copy
 // must name the device's own gesture: a mouse user told about "fingers" learns
 // nothing, and a touch user told to "click" learns the wrong thing.
 const COACH_KEY = 'stickerface.coach.seen';
 const COACH_TEXT = {
-  touch: 'One finger moves a sticker. Two fingers move or zoom the photo. Move/Resize in the panel decide what a drag does.',
-  mouse: 'Drag a sticker to move it. Scroll to zoom, middle-drag to pan. Move/Resize in the panel decide what a drag does.',
+  touch: 'One finger moves a sticker. Two fingers move or zoom the photo. The sticker\'s corner resizes it and the dot above it rotates.',
+  mouse: 'Drag a sticker to move it. Its corner resizes, the dot above it rotates. Scroll to zoom, middle-drag to pan.',
 };
 
 /** Cache of decoded bitmaps, keyed by sticker src. */
@@ -80,12 +86,12 @@ class CanvasApp {
     // purpose: the view must never touch sticker geometry, the selection, or
     // the undo stack.
     this.view = { dx: 0, dy: 0, scale: 1 };
-    // What a gesture on the SELECTED sticker does: 'move' (the frame only — a
-    // press anywhere inside it drags the sticker) or 'resize' (the 8 handles and
-    // the rotate handle become reachable). UI state like `view`, and out of the
-    // store for the same reason: a mode switch must never touch geometry or the
-    // undo stack. Named apart from `this.drag.mode` (the drag KIND).
-    this.editMode = 'move';
+    // Whether the frame's chrome is currently stood down because the sticker is
+    // smaller than a finger-sized handle (see _syncChrome). UI state like `view`,
+    // out of the store for the same reason: crossing the threshold must never touch
+    // geometry or the undo stack. `null` until the first projection, so the first
+    // selection always writes.
+    this._chromeSmall = null;
     // Active canvas pointers (client/CSS coords). One -> sticker mode; two or
     // more -> view (pan) mode. The tracker IS the arbitration state: a stale
     // entry makes the next one-finger tap read as a second finger and silently
@@ -119,7 +125,6 @@ class CanvasApp {
     this._bindPad();
     this._bindCoach();
     this._bindInputs();
-    this._applyEditMode();
     this.store.subscribe((event) => this.onStateChange(event));
     this.init();
   }
@@ -174,8 +179,6 @@ class CanvasApp {
       radius: $('#radius'),
       radiusValue: $('#radius-value'),
       pad: $('#sticker-pad'),
-      modeMove: $('#mode-move'),
-      modeResize: $('#mode-resize'),
       padSizeValue: $('#pad-size-value'),
       padNudgeUp: $('#pad-nudge-up'),
       padNudgeDown: $('#pad-nudge-down'),
@@ -466,7 +469,6 @@ class CanvasApp {
     const bx = rect.x * k + this.view.dx;
     const by = rect.y * k + this.view.dy;
 
-    const entering = box.hidden;   // the chrome is synced once per selection
     box.hidden = false;
     this.els.pad.hidden = false;
     this.els.padSizeValue.textContent = `${Math.round(st.w * 100)}%`;
@@ -482,10 +484,11 @@ class CanvasApp {
     } else {
       box.style.transform = '';
     }
-    // Entering a selection: project the mode once. NOT per pointer move — this
-    // function runs on every drag frame, and touching nine attributes (plus a
-    // querySelectorAll) per frame is churn the layers work already removed here.
-    if (entering) this._applyEditMode();
+    // Project the chrome on every frame: the frame's size changes continuously
+    // during a resize drag, and crossing the threshold has to be seen. _syncChrome
+    // writes only when the state flips, and never while a drag is live — so the
+    // handles cannot vanish under the finger that is holding one.
+    this._syncChrome(Math.min(cw, ch) < FRAME_MIN_CHROME_PX);
   }
 
   /* ---------- state -> DOM ---------- */
@@ -1245,11 +1248,8 @@ class CanvasApp {
       if (hitId) {
         const st = this.store.state.stickers.find((s) => s.id === hitId);
         this.store.select(hitId);
-        // Resize mode: the handles are the affordance, so a press aimed at one
-        // must not drag the sticker out from under the pointer. Selecting is all
-        // this press does — no drag object, so no undo entry either. (Release
-        // still runs the tap path, which refuses to place over a sticker.)
-        if (this.editMode === 'resize') return;
+        // The body IS the move handle, at any size: where the press lands decides
+        // what it does, so a press on the sticker always drags it.
         this.drag = { mode: 'move', id: hitId, start: pt, startCx: st.cx, startCy: st.cy };
         this.store.beginDrag(hitId);
         canvas.dataset.dragging = '1';
@@ -1259,7 +1259,20 @@ class CanvasApp {
       // pointerup, so a press that turns into a pan or a drag changes nothing.
     });
 
+    // The hover flag must not outlive the pointer over the canvas, or the whole
+    // photo keeps a `move` cursor after the pointer goes to the panel.
+    canvas.addEventListener('pointerleave', () => { delete canvas.dataset.hover; });
+
     canvas.addEventListener('pointermove', (e) => {
+      // Hover affordance, with no gesture in flight: the BODY is the move handle, so
+      // the cursor is what says a press here would drag the sticker. One hit test per
+      // move; the dataset flag is the only state, and the stylesheet reads it.
+      if (!this._pointers.size && !this.drag && !this._pan && this.image) {
+        const over = hitTest(this._canvasPoint(e), this.store.state.stickers,
+                             this.image.naturalWidth, this.image.naturalHeight);
+        if (over) canvas.dataset.hover = '1';
+        else delete canvas.dataset.hover;
+      }
       // A move from a tracked id ALWAYS refreshes its coordinates, even
       // when the gesture is already a two-finger pan: `_applyPanMove`
       // derives the focal distance and centroid from the tracker, so a
@@ -1388,8 +1401,9 @@ class CanvasApp {
   _startHandleDrag(el, e) {
     e.stopPropagation();
     // Hiding is not disabling: a hidden handle still fires this handler when
-    // something activates it (a stale shortcut, a programmatic click). Move mode
-    // hides these, so refuse them explicitly rather than relying on the markup.
+    // something activates it (a stale shortcut, a programmatic click). The chrome
+    // hides itself when the sticker is smaller than the target, so refuse them
+    // explicitly rather than relying on the markup.
     if (el.hidden) return;
     const st = this._selectedSticker();
     if (!st || !this.image) return;
@@ -1508,18 +1522,6 @@ class CanvasApp {
         e.preventDefault();
         if (e.shiftKey) this.store.redo();
         else this.store.undo();
-        return;
-      }
-
-      // Mode keys: only with a sticker selected (a mode with nothing selected has
-      // nothing to act on), and never while a form field has focus — the early
-      // return above already covers that.
-      if (st && (e.key === 'm' || e.key === 'M')) {
-        this._setEditMode('move');
-        return;
-      }
-      if (st && (e.key === 'r' || e.key === 'R')) {
-        this._setEditMode('resize');
         return;
       }
 
@@ -1642,39 +1644,28 @@ class CanvasApp {
     };
     this.els.padStep1.addEventListener('click', () => setStep(1));
     this.els.padStep10.addEventListener('click', () => setStep(10));
-
-    // The mode row — the whole "modification toolbar": it decides what a press on
-    // the sticker does, and therefore whether the resize/rotate handles exist.
-    this.els.modeMove.addEventListener('click', () => this._setEditMode('move'));
-    this.els.modeResize.addEventListener('click', () => this._setEditMode('resize'));
-  }
-
-  /** Switch the selected sticker's interaction mode ('move' | 'resize'). */
-  _setEditMode(mode) {
-    const next = mode === 'resize' ? 'resize' : 'move';
-    if (next === this.editMode) return;
-    this.editMode = next;
-    this._applyEditMode();
   }
 
   /**
-   * The ONE place `editMode` reaches the DOM: the buttons' aria state, the frame's
-   * mode class, every handle's `hidden`, and the stage hint. A mode switch is view
-   * state, so this projects and nothing else — no store call, hence no undo entry
-   * and no `change` event.
+   * The ONE place the chrome's visibility reaches the DOM: every handle's `hidden`,
+   * the frame's own class, the stage hint and the move mark (via the class).
+   *
+   * Called on every frame — the frame's size changes continuously during a resize
+   * drag — so it writes only when the state FLIPS, and never while a drag is live:
+   * removing the element under the pointer mid-gesture is how a captured pointer
+   * changes target. Nothing here touches the store, so no undo entry can come out
+   * of a size crossing the threshold.
    */
-  _applyEditMode() {
-    const move = this.editMode !== 'resize';
-    this.els.modeMove.setAttribute('aria-pressed', String(move));
-    this.els.modeResize.setAttribute('aria-pressed', String(!move));
-    this.els.selectBox.classList.toggle('mode-move', move);
-    this.els.selectBox.classList.toggle('mode-resize', !move);
+  _syncChrome(frameTooSmall) {
+    const small = frameTooSmall && !this.drag;
+    if (small === this._chromeSmall) return;
+    this._chromeSmall = small;
     // `hidden` removes reach AND rendering (no author rule sets `display` on these
-    // elements, so the UA sheet applies) — and the rotate stem follows the class.
-    // Hiding is still not disabling, which is why _startHandleDrag refuses a
-    // hidden handle as well.
-    for (const el of this.els.selectBox.querySelectorAll('.handle')) el.hidden = move;
-    this.els.hint.textContent = move ? MODE_HINT.move : MODE_HINT.resize;
+    // elements, so the UA sheet applies). Hiding is still not disabling, which is
+    // why _startHandleDrag refuses a hidden handle as well.
+    for (const el of this.els.selectBox.querySelectorAll('.handle')) el.hidden = small;
+    this.els.selectBox.classList.toggle('chrome-mini', small);
+    this.els.hint.textContent = small ? CHROME_HINT.mini : CHROME_HINT.full;
   }
 
   /* ---------- first-run coach mark ---------- */
