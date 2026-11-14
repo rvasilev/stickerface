@@ -9,6 +9,8 @@
     "e2e": "bash scripts/e2e.sh",
     "e2e:mobile": "bash scripts/e2e-mobile.sh",
     "fixture": "python3 scripts/make-fixture.py",
+    "release": "node scripts/stamp-sw.mjs --write",
+    "release:check": "node scripts/stamp-sw.mjs --check",
     "serve": "python3 -m http.server 8000"
   },
   "devDependencies": {

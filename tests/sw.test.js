@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
+import { computeCacheName } from '../scripts/sw-cache-name.mjs';
 
 const sw = readFileSync('sw.js', 'utf8');
 // Parse the PRECACHE array itself, not every quoted './…' in the file: the fetch handler also
@@ -28,10 +29,23 @@ describe('service worker precache list', () => {
     for (const u of list) expect(u.startsWith('./')).toBe(true);
   });
 
-  it('names its cache with the sf- prefix its cleanup is scoped to', () => {
-    expect(sw).toMatch(/const CACHE = 'sf-v\d+';/);
+  it('names its cache from the bytes of what it precaches, never by hand', () => {
+    // The guard this replaces asserted the constant's SHAPE (`sf-v\d+`), which cannot fail
+    // when the value is stale — decoration, not a guard. This recomputes the name from the
+    // files on disk, so any change to a precached file without a re-stamp fails here
+    // instead of silently reaching nobody: the browser installs a new worker only when
+    // sw.js's bytes differ, so a stale name is a release that never ships.
+    expect(sw).toMatch(/const CACHE = 'sf-[0-9a-f]{12}';/);
+    expect(sw.match(/const CACHE = '([^']+)';/)[1]).toBe(computeCacheName());
     // The cleanup filter and the prefix must not drift apart: another project on the same
     // origin (user.github.io hosts many) keeps its caches because of that prefix.
     expect(sw).toMatch(/startsWith\(CACHE_PREFIX\)/);
+  });
+
+  it('re-fetches the precache past the HTTP cache, so a fresh install cannot store old bytes', () => {
+    // addAll() fetches through the HTTP cache, and GitHub Pages sends max-age=600 on
+    // everything. Within that window an install would otherwise fill the NEW cache with the
+    // PREVIOUS release's bytes — a mixed-version install that looks successful.
+    expect(sw).toMatch(/new Request\([^)]*\{ cache: 'reload' \}/);
   });
 });
