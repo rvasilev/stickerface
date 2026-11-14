@@ -81,6 +81,19 @@ A change is done when ALL of these hold:
 Unit tests alone are **not** enough. The first build of this repo passed 48/48
 unit tests while the product's only job was dead (see "Pitfalls" below).
 
+## Branches
+
+Three, all on origin, all forked from `main`:
+
+- **`main`** — the baseline origin, and the only branch that ships: GitHub Pages builds from it
+  (`source: main`, `/`) and CI runs every gate on pushes to it. Nothing unfinished lands here.
+- **`devel`** — unfinished v1 work. Expected to be red sometimes; that is what it is for.
+- **`next`** — v2, based on `main`.
+
+CI's push trigger is `[main]` on purpose (see the note at the top of `ci.yml`): a CI that fails
+for known reasons trains people to ignore it. So `devel` and `next` are gated when they reach a
+pull request — or on demand with `gh workflow run ci.yml --ref <branch>`.
+
 ## Conventions
 
 - Plain JS with JSDoc types. No TypeScript build step.
