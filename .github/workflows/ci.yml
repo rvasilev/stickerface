@@ -154,6 +154,20 @@ jobs:
           E2E_PROBE: tests/e2e/sticker-transform-probe.js
         run: bash scripts/e2e.sh
 
+      # The ONLY probe that exercises the window-level driver for transform moves.
+      # A touch pointer is implicitly captured by the element under its press, so when
+      # both fingers land on the frame's `n`/`s` handles their pointermove events go to
+      # the HANDLE, not the canvas, and only the window listener keeps the transform
+      # alive. sticker-transform-probe aims at the frame INTERIOR (where `.select-box`
+      # is pointer-events:none, so the touches reach the canvas), so it does not cover
+      # this path. Delete that one line in the window listener and this gate is the
+      # only one that goes red — the sticker freezes silently, with no console error.
+      - name: Gate — a pinch that lands ON the handles still scales (the window pump)
+        env:
+          E2E_MOBILE: "1"
+          E2E_PROBE: tests/e2e/handle-pinch-probe.js
+        run: bash scripts/e2e.sh
+
       # Desktop mode on purpose: every criterion here is measurable with mouse
       # input (the one handle drag uses the harness's real mouse drag), so this
       # step has no by-design red — unlike layers-probe, which needs touch.

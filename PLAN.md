@@ -389,6 +389,20 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-14** — Phase 0 of the ui/logic split: the two characterisation criteria the
+  adversarial panel proved were MISSING, written before anything is extracted. Both pin
+  hazards that no probe reached, and each is proven by mutation.
+  **F5 — `emptyCanvasDragDoesNotPlace` in `mobile-probe.js`.** No probe drove a one-finger
+  drag released on empty canvas, so deleting the `> 8px` tap guard in `_maybePlaceOnTap`
+  left all eleven criteria green while a drag would quietly place a sticker.
+  **F6 — `tests/e2e/handle-pinch-probe.js`, a new gate (6 criteria, mobile).** A touch
+  pointer is implicitly captured by the element under its press, so when both fingers land
+  on the frame's `n`/`s` handles their moves are delivered to the HANDLE and only the
+  window-level listener at `js/ui.js:1345` keeps the transform alive. `sticker-transform-probe`
+  aims at the frame INTERIOR, where `.select-box` is `pointer-events: none`, so its touches
+  reach the canvas and are pumped by the canvas branch: deleting the window pump left every
+  named gate green. With the new probe, the sticker simply freezes — no console error, and
+  the new criterion is the only thing that fails.
 - **2026-11-14** — gate integrity: the harness now enforces the rules the definition of
   done only described. `run.py` printed its problem channels and returned 0, so a probe
   that lost criteria mid-run, a phase whose reader threw, or a console exception all read

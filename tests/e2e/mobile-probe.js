@@ -153,6 +153,17 @@
       { t: 'touchStart', pts: [DOT], ms: 70 },
       { t: 'touchEnd', pts: [], ms: 260 },
       { t: 'read', name: 'afterDoubleTap' },
+      // 6) ONE finger drag RELEASED ON EMPTY CANVAS is a drag, not a tap: the tap
+      //    guard (`> 8px`, js/ui.js:912) must refuse the placement. Every other
+      //    criterion in this file stays green if that guard is deleted — no other
+      //    probe drives a one-finger drag across empty canvas — so this is the only
+      //    thing pinning it. DOT is empty here precisely because step 5's double-tap
+      //    deleted the sticker that was there.
+      { t: 'read', name: 'beforeEmptyDrag' },
+      { t: 'touchStart', pts: [DOT], ms: 90 },
+      ...move([DOT], 42, 26),
+      { t: 'touchEnd', pts: [], ms: 260 },
+      { t: 'read', name: 'afterEmptyDrag' },
     ];
 
     window.__sfReadTouch = () => {
@@ -216,6 +227,15 @@
       out.tapPlacesSecondSticker = !!dt && !!pre && pre.yellowPixels > (interrupt && interrupt.yellowPixels || 0) * 1.5;
       out.doubleTapDeletesSticker = !!dt && !!pre &&
         dt.yellowPixels < Math.max(200, pre.yellowPixels * 0.62);
+
+      // The release lands ~49px from the press, so the app must call it a drag. A
+      // placed sticker adds well over 100 yellow px (the placement criterion above
+      // uses the same threshold); the tolerance below is resample noise, since the
+      // same untouched sticker re-measured is identical.
+      const bed = s.beforeEmptyDrag, aed = s.afterEmptyDrag;
+      out.emptyCanvasDragDoesNotPlace = !!aed && !!bed &&
+        aed.yellowPixels <= bed.yellowPixels + 60;
+      out.steps.push(['emptyCanvasDrag', [bed && bed.yellowPixels, aed && aed.yellowPixels]]);
       const pcounts = ['tap', 'oneFingerDrag', 'twoFingerPan', 'interrupt', 'tapForDelete', 'doubleTap']
         .map((k) => [k, (s['after' + k[0].toUpperCase() + k.slice(1)] || {}).pointers]);
       out.pointersCleanAfterGestures = pcounts.every(([, n]) => n === 0);
