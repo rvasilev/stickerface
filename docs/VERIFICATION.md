@@ -92,6 +92,19 @@ E2E_MOBILE=1 E2E_PROBE=tests/e2e/handles-probe.js npm run e2e # with the phone e
 npm run e2e -- https://rvasilev.github.io/stickerface/        # against the deployed site
 ```
 
+A deployed run covers the install criteria and the cached state. It cannot cover the offline
+boot: the phase stops the origin server, and a live origin cannot be stopped — see the offline
+phase's limits above. Both are deliberate limits, not gaps in the harness.
+
+**Live-verified on the deployed subpath (2026-11-14).** The one thing a local run cannot show is
+whether the worker's scope and precache survive GitHub Pages' `/stickerface/` subpath, where
+`Service-Worker-Allowed` cannot be sent. Read from the real origin: scope
+`https://rvasilev.github.io/stickerface/` — the app root, explicitly not the origin root — state
+`activated`, the page controlled by `…/stickerface/sw.js`, and `sf-v1` holding **94 entries**:
+every precached URL (the shell, the stylesheet, the 9 modules, 5 icons and all 76 emoji), each
+path under `/stickerface/`. A neighbouring repository on the same origin is outside that scope,
+which is the reason `sw.js` sits at the app root.
+
 `scripts/e2e.sh` serves the repo, starts Chrome, runs the probe and tears both down;
 `HTTP_PORT`/`CDP_PORT` override the ports and `CHROME_BIN` the browser. There is no
 ad-hoc runner — a gate you can only start by hand stops being run.
