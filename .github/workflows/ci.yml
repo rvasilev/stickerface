@@ -130,9 +130,11 @@ jobs:
           E2E_PROBE: tests/e2e/polish-probe.js
         run: bash scripts/e2e.sh
 
-      - name: Gate — UI/UX polish, phone (stage share, touch targets, no sideways scroll)
-        # Mode-aware: this probe reports a different criteria set per viewport,
-        # so both steps are needed for full coverage.
+      # Same probe in touch emulation: the phone criteria are a different set (a desktop
+      # claim like "the panel fits without scrolling" is false where the panel is meant
+      # to scroll), and touch emulation is what makes `(pointer: coarse)` true — so this
+      # is the only run that can catch a hint telling a phone to "Click".
+      - name: Gate — UI/UX polish, phone (stage share, touch targets, no sideways scroll, hint copy)
         env:
           E2E_MOBILE: "1"
           E2E_PROBE: tests/e2e/polish-probe.js

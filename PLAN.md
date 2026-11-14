@@ -470,6 +470,21 @@ It is a real browser, a real file upload and real pixel assertions — see
   resolved from the element under test cannot measure that element changing, because a
   hidden element's rect is 0×0.
 
+  **Polish round (UI/UX, same day).** Three real findings, all measured: the hint told
+  phones to "Click" (the coach mark already had device-aware copy for exactly this reason),
+  so `CHROME_HINT` is now `.mouse`/`.touch`/`.mini` off ONE shared `(pointer: coarse)`
+  read that `_maybeShowCoach` also uses; the decorative centre mark was 20 px against
+  12–14 px handles, so the least important element was the heaviest — now 16 px with the
+  disc at 0.68 opacity, because the actual problem was contrast (at 16 px/0.5 it merged
+  with the emoji's own dark features); and both facts are now criteria in `polish-probe.js`
+  (`hintFitsTwoLines` counting real line boxes via a Range, `hintUsesTheDevicesVerb` as the
+  discriminator — red on the old shared copy, green on the split), asserted in both CI
+  modes. Two visual "defects" were disproved by measurement rather than fixed: the picker
+  thumbnails are not cropped (76 tiles: 31×36 image in a 37×42 tile), and the sticker has
+  no drop shadow — that tan crescent below the chin is `make-fixture.py`'s tan ellipse,
+  which the sample sticker happens to sit on. Both are written up in
+  `docs/VERIFICATION.md` so the next agent does not "fix" them.
+
 - **2026-11-14** — M12: offline. `sw.js` precaches the shell, all 76 emoji and the icons;
   scope and cleanup come from its own location, so a GitHub Pages subpath works and a
   neighbouring app's caches survive; `js/pwa.js` offers an update without ever reloading on its

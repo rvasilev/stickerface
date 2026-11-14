@@ -53,7 +53,7 @@ probe must never read as success).
 | `coach-probe.js` — the first-run coach mark: hidden before any photo, shown on the first one, wording follows the INPUT DEVICE (a mouse user must not be told about fingers), the card's own centre is not a hit target, a real press through the card reaches the canvas AND dismisses it, the button is on screen at ≥32 px and owns its own centre, either dismissal path persists, a later photo does not show it again, and the button's press does not leak through to the canvas | 9 | green (2026-11-14) — desktop and touch runs both green (the touch run is where the wording variant is actually exercised) |
 | `emoji-swap-probe.js` — the picker EDITS the selected sticker: the artwork and the painted pixel change in place, geometry and z do not, it is one undo step, the layer row's visible name follows, the highlight follows the selection, and with nothing selected the click only arms the drop | 7 | green (2026-11-14) |
 | `desktop-zoom-probe.js` — the mouse wheel zooms the photo about the cursor (plain and Ctrl/Cmd, with the BROWSER not zooming), the frame and the canvas both follow, the page does not scroll, export is untouched, and a middle-button drag pans 1:1 and clamps rather than running away | 10 | green (2026-11-14) |
-| `polish-probe.js` — the panel is not a wall: `hidden` actually hides, sections collapse by real click, the emoji grid is capped, every control is ≥32px, every control type has a `:focus-visible` rule, one heading treatment, one number format, the nudge cluster reads ← ↑ ↓ → | 9 desktop / 4 phone | green (2026-11-14) — the only probe with a **mode-aware criteria set**: a desktop claim like "the panel fits without scrolling" is simply false on a phone, where the panel is meant to scroll, so each run reports only what holds for its viewport (CI runs both) |
+| `polish-probe.js` — the panel is not a wall: `hidden` actually hides, sections collapse by real click, the emoji grid is capped, every control is ≥32px, every control type has a `:focus-visible` rule, one heading treatment, one number format, the nudge cluster reads ← ↑ ↓ →, and the stage hint is an instruction (≤2 real line boxes, and the device's own verb) | 11 desktop / 6 phone | green (2026-11-14) — the only probe with a **mode-aware criteria set**: a desktop claim like "the panel fits without scrolling" is simply false on a phone, where the panel is meant to scroll, so each run reports only what holds for its viewport (CI runs both) |
 
 `layout-probe.js`, `touch-diag-probe.js`, `diag-doubletap-probe.js`,
 `diag-mobile-metrics-probe.js`, `diag-zoom-internals-probe.js` and
@@ -318,6 +318,24 @@ rather than letting "no change" read as success.
   on Chromium 157 (contacts alive, `transforming` set, no cancellation). What the probe
   does discriminate is the rule itself: `chromeStaysUpWhileAGestureIsLive` is red on the
   build that flips the chrome mid-gesture and green on the build that waits.
+- **The E2E fixture's tan ellipse reads as a drop shadow — it is not one.**
+  `scripts/make-fixture.py` paints a tan ellipse `(230,180,120)` at `500,280–700,480`, and
+  the sample sticker lands on its lower arc. The result: ~20 CSS px of tan sits directly
+  below the emoji's chin, so every visual read of a screenshot reports a shadow "spilling
+  below the frame" (three independent vision passes said exactly that), and a
+  colour-classifying measurement reports 29 px of sticker overflowing its frame. It is
+  photo content, always there. Two ways to settle it without guessing: sample a row across
+  the canvas at that height (the tan appears only under the arc, not across the width), or
+  read the fixture generator. The paint path itself adds no shadow: the emoji's own alpha
+  bounding box is exactly its box (216×216 measured), and `grep -n shadow js/*.js` finds
+  nothing outside CSS `box-shadow`. Measure the ART, not the composite, when the question
+  is whether the frame wraps the sticker.
+- **Never `git checkout <file>` to undo a mutation.** Mutation testing means putting a
+  bug back, running the gate, and restoring — and if the file has any other uncommitted
+  work, `git checkout js/ui.js` restores HEAD, not the pre-mutation state: it silently
+  discards every edit in that file that was not yet committed. Re-apply the inverse patch
+  instead (the `patch` tool on the exact string), so the restore is provably scoped to the
+  mutation.
 - **A closed `<details>` does not zero its child's rect.** Chromium hides the content
   with `::details-content { content-visibility: hidden }`, so `#layer-list` kept a
   142px bounding rect and read as "visible" while the section was collapsed. Measure

@@ -13,13 +13,14 @@
 // simply false on a phone, where the panel is meant to scroll. Criteria that do
 // not apply are NOT reported, so none can read as a silent pass; CI runs both.
 //
-//   desktop (9): noHiddenElementRenders, panelFitsOnDesktop,
+//   desktop (11): noHiddenElementRenders, panelFitsOnDesktop,
 //                layersVisibleWithoutScroll, panelSectionsCollapse,
 //                focusRingCoverage, controlsAreAtLeast32px,
 //                sectionHeadingTreatment, nudgeOrderIsConventional,
-//                unitFormatConsistent
-//   phone   (4): phoneStageIsHalfTheScreen, controlsAreAtLeast32px,
-//                noHorizontalOverflow, panelSectionsCollapse
+//                unitFormatConsistent, hintFitsTwoLines, hintUsesTheDevicesVerb
+//   phone   (6): phoneStageIsHalfTheScreen, controlsAreAtLeast32px,
+//                noHorizontalOverflow, panelSectionsCollapse,
+//                hintFitsTwoLines, hintUsesTheDevicesVerb
 (async () => {
   const r = { steps: [], errors: [] };
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -28,9 +29,11 @@
   const phone = window.matchMedia('(max-width: 880px)').matches || navigator.maxTouchPoints > 0;
   const DESKTOP = ['noHiddenElementRenders', 'panelFitsOnDesktop', 'layersVisibleWithoutScroll',
     'panelSectionsCollapse', 'focusRingCoverage', 'controlsAreAtLeast32px',
-    'sectionHeadingTreatment', 'nudgeOrderIsConventional', 'unitFormatConsistent'];
+    'sectionHeadingTreatment', 'nudgeOrderIsConventional', 'unitFormatConsistent',
+    'hintFitsTwoLines', 'hintUsesTheDevicesVerb'];
   const PHONE = ['phoneStageIsHalfTheScreen', 'controlsAreAtLeast32px',
-    'noHorizontalOverflow', 'panelSectionsCollapse'];
+    'noHorizontalOverflow', 'panelSectionsCollapse',
+    'hintFitsTwoLines', 'hintUsesTheDevicesVerb'];
   // Declared false up front: a phase that never runs must leave its criterion
   // failing rather than absent.
   for (const k of (phone ? PHONE : DESKTOP)) r[k] = false;
@@ -77,6 +80,45 @@
       }));
     r.controlsAreAtLeast32px = small.length === 0;
     log('under32', { count: small.length, small, controls: controls.length });
+
+    // ---- shared: the instruction on the photo must be an instruction ---------
+    // Two ways it stops being one. (a) It grows into an essay: the 103-char version
+    // measured 2.5 lines on a 390px stage, which is a paragraph painted over the
+    // photo. (b) It uses the other device's verb — a phone reading "Click" learns a
+    // gesture it does not have, the same reason COACH_TEXT has two variants. Both
+    // are measured with the hint force-shown, because it is hidden until something is
+    // selected and a hidden element's box is 0 — a silent pass.
+    const hintEl = document.getElementById('stage-hint');
+    // Selected first, because the hint's copy is written by the render path: measuring
+    // the static markup in index.html instead would test the wrong string and pass while
+    // the app's own path was wrong. Deselected after, so the criteria below see the
+    // state the probe started in.
+    app.store.select(app.store.state.stickers[0].id);
+    await sleep(160);
+    const hintWasHidden = hintEl.hidden;
+    hintEl.hidden = false;
+    const hintBox = box(hintEl);
+    const hintCS = getComputedStyle(hintEl);
+    // Count line BOXES, not height arithmetic. Height over line-height has to guess at
+    // padding and at a fractional line-height (measured here: content 36px, line-height
+    // 17.x — 36/17 gives "2.1 lines" for a hint that is visibly two lines). A Range over
+    // the text reports one rect per line box, exactly.
+    const hintRange = document.createRange();
+    hintRange.selectNodeContents(hintEl);
+    const hintLines = [...hintRange.getClientRects()].filter((rc) => rc.height > 1).length;
+    r.hintFitsTwoLines = hintLines > 0 && hintLines <= 2;
+    r.hintUsesTheDevicesVerb = phone
+      ? (/tap|pinch|twist/i.test(hintEl.textContent) && !/click/i.test(hintEl.textContent))
+      : /click/i.test(hintEl.textContent);
+    log('hint', {
+      text: hintEl.textContent, chars: hintEl.textContent.length,
+      w: Math.round(hintBox.width), h: Math.round(hintBox.height),
+      lineHeight: hintCS.lineHeight, lines: hintLines,
+      coarse: window.matchMedia('(pointer: coarse)').matches,
+    });
+    hintEl.hidden = hintWasHidden;
+    app.store.select(null);
+    await sleep(120);
 
     if (!phone) {
       // ---- 1. does `hidden` actually hide? ---------------------------------
