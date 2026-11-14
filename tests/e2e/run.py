@@ -70,6 +70,24 @@ async def main(probe_path, url_match="8123"):
                     return msg
                 events.append(msg)
 
+        async def send_fresh(method, params=None, timeout=8):
+            """One-shot CDP call on its OWN connection to the same page target.
+
+            The long-lived socket above is closed by this Chrome (157.0.8103.50) once the
+            probe phase finishes: every attempt after it raises ConnectionClosedOK with code
+            1000, two attempts in a row, with no watchdog killing Chrome (checked in
+            scripts/e2e.sh). So any CDP work that happens AFTER the probe — the
+            installability check here, and the offline phase's reload/emulate — dials a
+            fresh connection instead. Verified on this Chrome: a fresh connection to the
+            same target answers Page.getInstallabilityErrors normally.
+            """
+            async with websockets.connect(target["webSocketDebuggerUrl"], max_size=8 << 20) as w:
+                await w.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+                while True:
+                    msg = json.loads(await asyncio.wait_for(w.recv(), timeout=timeout))
+                    if msg.get("id") == 1:
+                        return msg
+
         await send("Runtime.enable")
         await send("Page.enable")
 
@@ -529,6 +547,41 @@ async def main(probe_path, url_match="8123"):
         # result, and (mobile) no result at all.
     if os.environ.get("E2E_MOBILE") == "1" and not touch_result:
         failures.append("touch phase: no result at all")
+
+    # The install criteria page JS cannot observe: ask the BROWSER whether it would install
+    # this app. Guarded by an env flag so every existing gate's output is unchanged.
+    installability = []
+    if os.environ.get("E2E_INSTALLABILITY") == "1":
+        print(f"=== long-lived socket: close_code={ws.close_code} ===")
+        payload = {}
+        read_ok = False
+        for attempt in (1, 2):
+            try:
+                got = await send_fresh("Page.getInstallabilityErrors")
+                payload = got.get("result", {})
+                # The key must be PRESENT for this to count as a read: an empty or missing
+                # payload is an unknown, and an unknown must never read as "no errors".
+                read_ok = isinstance(payload, dict) and "installabilityErrors" in payload
+                print(f"=== INSTALLABILITY (attempt {attempt}, read_ok={read_ok}) ===")
+                print("  raw: " + json.dumps(payload)[:600])
+                if read_ok:
+                    break
+            except Exception as exc:
+                print(f"=== INSTALLABILITY attempt {attempt} failed: {type(exc).__name__}: {exc} ===")
+            await asyncio.sleep(0.3)
+        if not read_ok:
+            failures.append("installability could not be read from the browser")
+        errs = (payload.get("installabilityErrors") or []) if read_ok else []
+        for err in errs:
+            if isinstance(err, dict):
+                installability.append(err.get("errorId") or json.dumps(err)[:200])
+            else:
+                installability.append(str(err))
+        checks["installabilityErrorsEmpty"] = read_ok and not installability
+        if installability:
+            print("=== INSTALLABILITY ERRORS ===")
+            for e in installability:
+                print("  " + str(e))
 
     print("=== checks ===")
     for k, v in checks.items():
