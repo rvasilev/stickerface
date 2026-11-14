@@ -104,10 +104,13 @@ phase's limits above. Both are deliberate limits, not gaps in the harness.
 whether the worker's scope and precache survive GitHub Pages' `/stickerface/` subpath, where
 `Service-Worker-Allowed` cannot be sent. Read from the real origin: scope
 `https://rvasilev.github.io/stickerface/` — the app root, explicitly not the origin root — state
-`activated`, the page controlled by `…/stickerface/sw.js`, and `sf-v1` holding **94 entries**:
-every precached URL (the shell, the stylesheet, the 9 modules, 5 icons and all 76 emoji), each
-path under `/stickerface/`. A neighbouring repository on the same origin is outside that scope,
-which is the reason `sw.js` sits at the app root.
+`activated`, the page controlled by `…/stickerface/sw.js`, and a single `sf-` cache holding **94
+entries**: every precached URL (the shell, the stylesheet, the 9 modules, 5 icons and all 76
+emoji), each path under `/stickerface/`. The cache's name is generated, not fixed — it was
+`sf-b014ee6ed281` at that reading — and its a hash of the bytes it holds, so a re-read after any
+release will differ (`node scripts/stamp-sw.mjs --check` prints the current value). A
+neighbouring repository on the same origin is outside that scope, which is the reason `sw.js`
+sits at the app root.
 
 `scripts/e2e.sh` serves the repo, starts Chrome, runs the probe and tears both down;
 `HTTP_PORT`/`CDP_PORT` override the ports and `CHROME_BIN` the browser. There is no
@@ -318,6 +321,18 @@ rather than letting "no change" read as success.
   on Chromium 157 (contacts alive, `transforming` set, no cancellation). What the probe
   does discriminate is the rule itself: `chromeStaysUpWhileAGestureIsLive` is red on the
   build that flips the chrome mid-gesture and green on the build that waits.
+- **"I deployed and the app still shows the old version" — with nothing in the console.** The
+  browser installs a new worker only when `sw.js`'s bytes differ, so a release that changed only
+  `js/ui.js` or `css/style.css` installs nothing: no `updatefound`, no update bar, no error. The
+  release mechanism was a hand-bumped `const CACHE = 'sf-v1'` and depended on remembering it. The
+  name is now derived from the bytes of every precached file (`npm run release`), so the same edit
+  necessarily changes the worker, and `tests/sw.test.js` recomputes it rather than matching its
+  shape — the old assertion (`/const CACHE = 'sf-v\d+';/`) passed for every stale value. Proved
+  both ways: appending one comment byte to `css/style.css` moved the name
+  `sf-b014ee6ed281` → `sf-1029cf9c0bf1` and failed the unit gate (1 failed | 3 passed); restoring
+  the exact bytes returned the same name and green. Diagnose a live copy with
+  `node scripts/stamp-sw.mjs --check` plus `caches.keys()` in the browser — the *name* tells you
+  which build that copy is holding.
 - **The E2E fixture's tan ellipse reads as a drop shadow — it is not one.**
   `scripts/make-fixture.py` paints a tan ellipse `(230,180,120)` at `500,280–700,480`, and
   the sample sticker lands on its lower arc. The result: ~20 CSS px of tan sits directly

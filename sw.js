@@ -5,7 +5,13 @@
 // The constants must precede PRECACHE: touching it earlier throws a TDZ ReferenceError during
 // install, whose only symptom is a worker that never activates.
 const CACHE_PREFIX = 'sf-';   // every cache this app owns starts with this
-const CACHE = 'sf-v1';        // bump on release: activate() deletes older sf- caches
+// GENERATED, not chosen: the name is a hash of the bytes of everything in PRECACHE, so that
+// changing any shipped file necessarily changes THIS FILE's bytes. The browser installs a new
+// worker only when the script's content differs, so an edit by hand here — or a release that
+// forgets to re-stamp — is a release that reaches nobody: no updatefound, no prompt, no error.
+// Re-stamp with `npm run release`; `tests/sw.test.js` recomputes it and fails if it is stale.
+// activation deletes the older sf- caches this name replaces.
+const CACHE = 'sf-b014ee6ed281';
 
 const PRECACHE = [
   // Every file the app serves, so one list answers "what works offline".
@@ -47,7 +53,11 @@ self.addEventListener('install', (event) => {
   // skipWaiting(): an update waits to be asked for, so a running page is never taken over.
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE);
-    await cache.addAll(PRECACHE);
+    // `cache: 'reload'` on every entry: addAll() otherwise fetches THROUGH the HTTP cache, and
+    // GitHub Pages sends max-age=600 on everything it serves. Inside that window a fresh
+    // install would fill the new cache with the previous release's bytes — a multi-version
+    // install that reports success.
+    await cache.addAll(PRECACHE.map((url) => new Request(url, { cache: 'reload' })));
   })());
 });
 

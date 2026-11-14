@@ -485,6 +485,20 @@ It is a real browser, a real file upload and real pixel assertions — see
   which the sample sticker happens to sit on. Both are written up in
   `docs/VERIFICATION.md` so the next agent does not "fix" them.
 
+- **2026-11-14** — M13 follow-up: the release path. `const CACHE = 'sf-v1'` was the entire
+  update mechanism and depended on remembering to bump it; the browser installs a new worker
+  only when `sw.js`'s bytes differ, so a release touching only `js/ui.js` reached no installed
+  copy — silently, with no error anywhere, and `tests/sw.test.js` asserted the constant's
+  *shape*, which passes for every stale value. Now the name is generated from the bytes of
+  everything in `PRECACHE` (`scripts/sw-cache-name.mjs`, stamped by `scripts/stamp-sw.mjs` —
+  `npm run release`, `npm run release:check`), `./sw.js` is excluded from its own hash because
+  self-reference never converges, `install()` fetches with `{ cache: 'reload' }` so the 600s
+  Pages window cannot install the previous release's bytes under the new name, and the unit gate
+  recomputes the name from disk. Proved RED first (2 of 4 assertions failed on the un-stamped
+  worker), then GREEN; falsified by one appended byte in `css/style.css` → a different derived
+  name and a failing test, restored byte-exact → the same name. Offline/installability gate
+  20/20 with the derived name live in the browser beside an untouched neighbour cache.
+
 - **2026-11-14** — M12: offline. `sw.js` precaches the shell, all 76 emoji and the icons;
   scope and cleanup come from its own location, so a GitHub Pages subpath works and a
   neighbouring app's caches survive; `js/pwa.js` offers an update without ever reloading on its

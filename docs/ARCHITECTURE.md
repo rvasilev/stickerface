@@ -271,6 +271,20 @@ reloads only on `controllerchange` after that click, because posting `SKIP_WAITI
 reloading in the same tick sometimes reloads into the *old* worker, which looks exactly like
 the update not working.
 
+**A release ships through `sw.js`, or it does not ship at all.** The browser installs a new
+worker only when the script's *bytes* differ — it re-fetches `sw.js` on navigation, past the
+HTTP cache — so a release that changes `js/ui.js` under a byte-identical worker reaches no
+installed copy: no `updatefound`, therefore no update bar, no error, ever. GitHub Pages sends
+`cache-control: max-age=600` on everything including `sw.js`, and that TTL gates nothing on this
+path. The cache name is therefore **generated from what it precaches**
+(`scripts/sw-cache-name.mjs`, stamped by `scripts/stamp-sw.mjs` / `npm run release`) instead of
+bumped by hand, so changing any shipped file necessarily changes the worker's bytes. `./sw.js`
+is excluded from its own hash — self-reference never converges — and `tests/sw.test.js`
+recomputes the name from disk, so a stale stamp fails the unit gate rather than reaching a user
+in silence. `install()` fetches every entry with `{ cache: 'reload' }`: `addAll()` otherwise
+reads through the HTTP cache, and inside the 600-second window a fresh install would fill the new
+cache with the previous release's bytes and report success.
+
 **Verifying it** is documented in `docs/VERIFICATION.md`: an offline gate has to defeat every
 cache in its own chain — the worker's, the browser's, and a runtime cache the worker itself
 wrote — and the harness stops the origin server rather than emulating one target, because CDP
