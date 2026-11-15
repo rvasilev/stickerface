@@ -11,7 +11,7 @@ const CACHE_PREFIX = 'sf-';   // every cache this app owns starts with this
 // forgets to re-stamp — is a release that reaches nobody: no updatefound, no prompt, no error.
 // Re-stamp with `npm run release`; `tests/sw.test.js` recomputes it and fails if it is stale.
 // activation deletes the older sf- caches this name replaces.
-const CACHE = 'sf-19ff7412f3cd';
+const CACHE = 'sf-18766a66f745';
 
 const PRECACHE = [
   // Every file the app serves, so one list answers "what works offline".
