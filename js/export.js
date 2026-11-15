@@ -5,9 +5,6 @@
 // area cap (Safari 4096x4096 through iOS 17, 8192x8192 in iOS 18; Chrome far higher — above it a
 // natural-size canvas allocates nothing and toBlob resolves null) and the user's own export size.
 // Normalized state is scale-free, so a reduced export is still correct, only lower resolution.
-//
-// A partial asset failure must never disable the app: exportImage returns a `degraded` count of
-// stickers with no drawable asset, which paint as a shaded block.
 
 import { paint, partitionStickers } from './render.js';
 
@@ -223,36 +220,30 @@ export function exportSize(W, H, cap = DEFAULT_MAX_CANVAS_PIXELS, maxSide = Infi
   return { w: cw, h: ch, scale: cw / w, capped: true };
 }
 
-/** The cap for the browser running this page. The only DOM touch in this module. */
-function currentMaxCanvasPixels() {
+/** The UA string of the environment this runs in, or '' where there is none (a worker, an old page). */
+function currentUA() {
   try {
-    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-    return maxCanvasPixels(ua);
+    return typeof navigator !== 'undefined' ? navigator.userAgent : '';
   } catch {
-    return DEFAULT_MAX_CANVAS_PIXELS;
+    return '';
   }
 }
 
-/** The per-side cap for the browser running this page, same DOM touch as above. */
+/** Largest canvas area, in pixels, the browser running this page can allocate. */
+function currentMaxCanvasPixels() {
+  return maxCanvasPixels(currentUA());
+}
+
+/** The per-side cap for the same browser — Infinity where nothing constrains it. */
 function currentMaxCanvasSide() {
-  try {
-    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-    return maxCanvasSide(ua);
-  } catch {
-    return Infinity;
-  }
+  return maxCanvasSide(currentUA());
 }
 
 /**
  * Composite state onto a fresh canvas (no Blob; testable). At natural size unless a limit binds — the
- * browser's canvas cap or the user's export size. compositeSize reports the size used AND which limit
- * reduced it, so nothing downstream can blame the wrong one.
- * @param {object} state Store state {image, stickers}
- * @param {Map<string, ImageBitmap>} bitmaps
- * @param {Map<string, ImageBitmap>} [customBitmaps]
- * @param {Map<string, HTMLImageElement>} [fallback] img fallbacks by src
+ * browser's canvas cap or the user's own export size. compositeSize reports the size used AND which
+ * limit reduced it, so nothing downstream can blame the wrong one.
  * @param {number} [maxLongEdge] the user's chosen long edge in px (Infinity = full resolution)
- * @returns {{canvas: HTMLCanvasElement, compositeSize: object}} paint store, never blank
  */
 function compositeCanvas(state, bitmaps, customBitmaps, fallback, maxLongEdge = Infinity) {
   const image = state.image;
@@ -261,11 +252,12 @@ function compositeCanvas(state, bitmaps, customBitmaps, fallback, maxLongEdge = 
   const H = image.naturalHeight;
   if (!W || !H) throw new Error('Image has no natural size');
 
+  const maxPixels = currentMaxCanvasPixels();
   const browserSide = currentMaxCanvasSide();
   const userEdge = Number.isFinite(maxLongEdge) && maxLongEdge > 0 ? maxLongEdge : Infinity;
   // The tighter side wins; the area cap is passed through untouched so a browser whose AREA limit
   // binds still gets its full allowance.
-  const size = exportSize(W, H, currentMaxCanvasPixels(), Math.min(browserSide, userEdge));
+  const size = exportSize(W, H, maxPixels, Math.min(browserSide, userEdge));
   const canvas = document.createElement('canvas');
   canvas.width = size.w;
   canvas.height = size.h;
@@ -279,9 +271,9 @@ function compositeCanvas(state, bitmaps, customBitmaps, fallback, maxLongEdge = 
     requestedH: H,
     capped: size.capped,
     scale: size.scale,
-    maxPixels: currentMaxCanvasPixels(),
-    /** Which limit reduced it: 'size' (the user's own setting), 'canvas' (the browser's cap), or
-     *  null when nothing did. The note may not blame the browser for the user's own choice. */
+    maxPixels,
+    // Which limit reduced it: 'size' (the user's own setting), 'canvas' (the browser's cap), or null
+    // when nothing did. The note may not blame the browser for the user's own choice.
     reducedBy: size.capped ? (userEdge < browserSide ? 'size' : 'canvas') : null,
     longEdgePx: userEdge === Infinity ? null : userEdge,
   };
@@ -300,29 +292,23 @@ function compositeCanvas(state, bitmaps, customBitmaps, fallback, maxLongEdge = 
 }
 
 /**
- * Why an export was reduced: a loud, exact sentence for the UI status text, naming the limit that
- * actually applied — the user's own size setting, or the browser's canvas cap.
+ * Why an export was reduced: a loud, exact sentence naming the limit that actually applied, for the
+ * status text (which already reports the dimensions and bytes that were written, so this explains
+ * rather than repeats them).
  * @param {object} compositeSize from compositeCanvas
  * @returns {string} empty when the export is at full resolution
  */
 export function cappedExportNote(compositeSize) {
   if (!compositeSize?.capped) return '';
-  const { requestedW, requestedH, w, h, maxPixels } = compositeSize;
+  const { requestedW, requestedH, maxPixels, longEdgePx } = compositeSize;
   if (compositeSize.reducedBy === 'size') {
-    return `Saved at ${w}x${h} — the export size is set to a ${compositeSize.longEdgePx} px long edge (this photo is ${requestedW}x${requestedH}).`;
+    return `The export size is set to a ${longEdgePx} px long edge, so this ${requestedW}x${requestedH} photo was reduced (stickers keep their positions).`;
   }
-  return `This photo is ${requestedW}x${requestedH}, which exceeds the browser's maximum canvas size of ${maxPixels.toLocaleString('en-US')} pixels, so the export was saved at ${w}x${h} instead of full resolution (one ${maxPixels.toLocaleString('en-US')}-pixel canvas, stickers at the same positions).`;
+  return `This photo is ${requestedW}x${requestedH}, which exceeds the browser's maximum canvas size of ${maxPixels.toLocaleString('en-US')} pixels, so the export is at the largest size that canvas can paint (stickers keep their positions).`;
 }
 
-/**
- * Count stickers with no drawable asset (no bitmap and no fallback <img>), which paint as a shaded
- * block. Informative only — it never blocks an export.
- * @param {object} state Store state {stickers}
- * @param {Map<string, ImageBitmap>} bitmaps emoji bitmaps by src
- * @param {Map<string, ImageBitmap>} [customBitmaps] user-image bitmaps by src
- * @param {Map<string, HTMLImageElement>} [fallback] img fallbacks by src
- * @returns {number} count of stickers exported as a shaded block
- */
+/** How many stickers have no drawable asset (no bitmap and no fallback <img>), and so paint as a
+ *  shaded block. Informative only — it never blocks an export. */
 export function degradedStickerCount(state, bitmaps, customBitmaps, fallback) {
   const stickers = state?.stickers ?? [];
   const { withPlaceholder } = partitionStickers(stickers, bitmaps, fallback, customBitmaps);

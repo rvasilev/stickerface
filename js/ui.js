@@ -1902,7 +1902,7 @@ class CanvasApp {
     // than showing a quality number the encoder ignores. The size applies to every format.
     const level = levelValue(format, this._exportLevels[format]);
     const edge = longEdge(this._exportLevels.size);
-    this.setExportStatus(`Exporting${edge ? ` at a ${edge} px long edge` : ' at full resolution'}…`);
+    this.setExportStatus(`Exporting at ${edge ? `the ${edge} px size` : 'full resolution'}…`);
     try {
       // A partial asset failure must never disable the app: export runs
       // whenever an image is loaded; undecodable stickers draw as a block.
@@ -1922,8 +1922,10 @@ class CanvasApp {
         ? ` This browser cannot encode ${this._formatName(format)} — saved as ${this._formatName(actual.ext === 'jpg' ? 'jpeg' : actual.ext)} instead.`
         : '';
       const levelNote = level === undefined ? '' : `, ${this._exportLevelLabel(format)}`;
-      const sizeNote = edge ? `, ${edge} px` : '';
-      const detail = `${this._formatName(format)}${levelNote}${sizeNote}, ${this._sizeLabel(blob.size)}`;
+      // What was WRITTEN, never the setting that was asked for: a size larger than the photo changes
+      // nothing, and "Web 1280 px" next to a 1000px export is a promise the bytes do not keep.
+      const dimsNote = `${compositeSize.w}x${compositeSize.h}`;
+      const detail = `${this._formatName(format)}${levelNote}, ${dimsNote}, ${this._sizeLabel(blob.size)}`;
       this.setExportStatus(
         (degraded
           ? `Saved ${filename} (${detail}) — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no drawable asset and were exported as a shaded block.`

@@ -5,6 +5,7 @@ import {
   maxCanvasPixels,
   maxCanvasSide,
   exportSize,
+  cappedExportNote,
   degradedStickerCount,
   DEFAULT_MAX_CANVAS_PIXELS,
   SAFARI_LEGACY_MAX_CANVAS_PIXELS,
@@ -124,6 +125,33 @@ describe('exportSize', () => {
 
   it('an absent cap uses the default 268M cap', () => {
     expect(exportSize(1200, 800)).toEqual({ w: 1200, h: 800, scale: 1, capped: false });
+  });
+});
+
+describe('cappedExportNote — the sentence explains the reduction the status line already measured', () => {
+  const reduced = (over = {}) => ({
+    w: 1920, h: 1280, requestedW: 4032, requestedH: 3024, capped: true, scale: 0.5,
+    maxPixels: DEFAULT_MAX_CANVAS_PIXELS, reducedBy: 'size', longEdgePx: 1280, ...over,
+  });
+  const cap = DEFAULT_MAX_CANVAS_PIXELS.toLocaleString('en-US');
+
+  it('says nothing when nothing was reduced', () => {
+    expect(cappedExportNote(reduced({ capped: false, reducedBy: null, longEdgePx: null }))).toBe('');
+    expect(cappedExportNote(undefined)).toBe('');
+  });
+
+  it("blames the user's own size, never the browser's cap, when the setting did the reducing", () => {
+    const note = cappedExportNote(reduced());
+    expect(note).toContain('1280 px long edge');
+    expect(note).toContain('4032x3024');
+    expect(note).not.toContain(cap);
+  });
+
+  it('blames the canvas cap, and no long edge, when the browser did the reducing', () => {
+    const note = cappedExportNote(reduced({ reducedBy: 'canvas', longEdgePx: null }));
+    expect(note).toContain(cap);
+    expect(note).toContain('4032x3024');
+    expect(note).not.toContain('long edge');
   });
 });
 
