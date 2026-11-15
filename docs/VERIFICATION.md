@@ -89,6 +89,15 @@ and **lossless WebP beats PNG by 43.8% at identical pixels** — which is why `1
 named WebP tier instead of a level. Encode cost is the other finding: JPEG 108 ms, PNG
 383 ms, WebP 0.75 1,115 ms, WebP q1.0 2,869 ms on a 12 MP photo.
 
+`diag-live-boot-probe.js` measures how long the app takes to BOOT on whatever origin it is run
+against, and whether a file-input dispatch still lands afterwards. The boot proof is the picker's
+76 buttons, which the app's constructor creates. It exists because `tests/e2e/run.py` waits a fixed
+2.5 s after the reload, which is generous for a probe served over loopback and a guess against a
+REMOTE origin (index.html plus four ES modules over the network): if the app is not constructed yet,
+the `change` event on `#file-input` goes to a listener that does not exist, with no error — every
+DOM-only criterion passes, every handler-dependent one fails, and the console stays clean. Measured
+locally: `bootMs 0`, picker 76 buttons, photo loads in 120 ms.
+
 `diag-layers-paint-probe.js` asks whether the CANVAS follows the array order after a
 reorder, with no gesture involved at all: it adds the black and white squares,
 calls `store.moveTo` directly, and reports the pixel at their shared centre before
