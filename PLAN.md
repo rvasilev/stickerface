@@ -409,6 +409,22 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-15** — the E2E harness's remote-origin defect, found while verifying M16 against the LIVE
+  URL. Running the new gate against `https://rvasilev.github.io/stickerface/` reported 3/9 with
+  `photoLoaded: false`, and the journey gate 13/23 on the same run: every DOM-only criterion passed,
+  every handler-dependent one failed, and the console printed `(none)`. The app was innocent — live
+  serves HEAD byte-for-byte (`sha256sum` on `index.html`, `js/ui.js`, `js/export.js`, the probe). The
+  cause is the driver's fixed `sleep(2.5)` after the reload: on a remote origin the app's constructor
+  may not have run yet, and a probe's first act is to dispatch `change` on `#file-input`, whose
+  listener the constructor installs — **an event with no listener is lost with no error**. The
+  instrument (`diag-live-boot-probe.js`, which installs its own listener beside the app's) measured it:
+  `pickerButtons: 0` at probe start, the first dispatch swallowed after a 12 s wait, then the same page
+  loading a photo **271 ms** after it really booted. `run.py` now polls the picker marker
+  (`#emoji-picker` non-empty) up to `E2E_BOOT_TIMEOUT` (20 s default), prints
+  `e2e: app booted in <n> ms`, and warns loudly rather than failing quietly if it never appears.
+  After the fix, against LIVE: `export-size-probe` **9/9**, journey **27/27**,
+  `export-format-probe` **7/7**. This also means every live check this repo has ever run passed on a
+  warm edge and would have failed on a cold one — the trap is recorded in `docs/VERIFICATION.md`.
 - **2026-11-15** — export SIZE and the WebP lossless tier (M16). The ask was "compression settings for
   exported formats" — which M14 had already shipped as levels, so the first thing this did was
   MEASURE which lever actually moves a file (`diag-export-compression-probe.js`, a deterministic

@@ -89,14 +89,15 @@ and **lossless WebP beats PNG by 43.8% at identical pixels** — which is why `1
 named WebP tier instead of a level. Encode cost is the other finding: JPEG 108 ms, PNG
 383 ms, WebP 0.75 1,115 ms, WebP q1.0 2,869 ms on a 12 MP photo.
 
-`diag-live-boot-probe.js` measures how long the app takes to BOOT on whatever origin it is run
-against, and whether a file-input dispatch still lands afterwards. The boot proof is the picker's
-76 buttons, which the app's constructor creates. It exists because `tests/e2e/run.py` waits a fixed
-2.5 s after the reload, which is generous for a probe served over loopback and a guess against a
-REMOTE origin (index.html plus four ES modules over the network): if the app is not constructed yet,
-the `change` event on `#file-input` goes to a listener that does not exist, with no error — every
-DOM-only criterion passes, every handler-dependent one fails, and the console stays clean. Measured
-locally: `bootMs 0`, picker 76 buttons, photo loads in 120 ms.
+`diag-live-boot-probe.js` is the instrument that found the harness's own remote-origin defect, and it
+stays as the tool for two questions: does a synthetic file-input dispatch actually REACH a listener,
+and does a photo of a given size load? It installs its own `change` listener on `#file-input`
+alongside the app's, so "the event arrived and the app did nothing" is distinguishable from "the
+event never arrived" — and it sweeps 900×600 and 2600×1800, reporting the stage, the app's status line
+and the button state for each. Measured on a cold remote origin before the fix: `pickerButtons: 0` at
+probe start (the app was still un-booted 2.5 s after the reload), the first dispatch swallowed with
+`stageShown: false` after a 12 s wait, and the same page loading a photo 271 ms after it really booted.
+`run.py` now waits for the picker marker instead of a duration.
 
 `diag-layers-paint-probe.js` asks whether the CANVAS follows the array order after a
 reorder, with no gesture involved at all: it adds the black and white squares,
@@ -424,6 +425,20 @@ rather than letting "no change" read as success.
 
 ## Traps
 
+- **A fixed wait after the reload is a coin flip on a REMOTE origin — wait for the app, not for a
+  duration.** The driver reloads, then used to sleep 2.5 s before evaluating the probe. On loopback
+  that is generous (the module graph is local); against GitHub Pages the app can still be
+  unconstructed, and a probe's first act is to dispatch `change` on `#file-input`, whose listener the
+  constructor installs — an event with **no listener is lost silently**. The result is the most
+  misleading shape a gate can produce: every DOM-only criterion passes, every handler-dependent one
+  fails, and the console stays clean. Measured: `pickerButtons: 0` at probe start on a cold remote
+  origin, first dispatch swallowed after a 12 s wait, then the same page loading a photo **271 ms**
+  after it really booted. `run.py` now polls the picker marker (`#emoji-picker` non-empty = the
+  constructor ran) up to `E2E_BOOT_TIMEOUT` (default 20 s), prints `e2e: app booted in <n> ms`, and
+  warns loudly instead of failing quietly if the marker never appears. Verified after the fix: live
+  `export-size-probe` 9/9, journey 27/27, `export-format-probe` 7/7 — all three of which failed
+  against the same deployed revision before it. **Never diagnose a remote gate failure as an app bug
+  until the boot line says the app was up.**
 - **A comparison between two things that are not the thing can pass as evidence.** The first draft of
   `export-size-probe.js` asked whether "lossless WebP beats PNG" and it was GREEN before the tier
   existed — because the WebP export silently fell back to the lossy `better` level (0.92), and a
