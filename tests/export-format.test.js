@@ -88,11 +88,13 @@ describe('levelValue — the four levels a lossy export offers', () => {
   it('offers 1.0 as ONE named tier, for WebP only, and it means lossless', () => {
     // The tier exists because lossless WebP is 43.8% smaller than PNG at identical pixels
     // (diag-export-compression-probe.js) — a saving that needs no dependency. JPEG has no such
-    // tier: at 1.0 it is still lossy and still triples the file.
+    // tier: at 1.0 it is still lossy and still triples the file. Asking for a tier a format does
+    // not have falls back like any other unknown level, so the absence is enforced by the table
+    // and by the control that is built from it, not by a second refusal here.
     expect(levelValue('webp', 'lossless')).toBe(1);
-    expect(levelValue('jpeg', 'lossless')).toBeUndefined();
     expect(Object.keys(EXPORT_LEVELS.webp)).toContain('lossless');
     expect(Object.keys(EXPORT_LEVELS.jpeg)).not.toContain('lossless');
+    expect(levelValue('jpeg', 'lossless')).toBe(EXPORT_LEVELS.jpeg[DEFAULT_EXPORT_LEVEL]);
   });
 
   it('is monotone from smaller to maximum, so the control means one thing', () => {
