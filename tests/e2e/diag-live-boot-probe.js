@@ -1,17 +1,11 @@
-// Diagnostic (NOT a gate): does a synthetic file-input dispatch actually reach the app, and at which
-// photo size does it stop loading?
+// Diagnostic (NOT a gate): does a synthetic file-input dispatch actually reach the app, and does a
+// photo of a given size load?
 //
-// Two facts make this worth a probe rather than an argument:
-//  - the app's load path is SILENT on refusal — `ui.js: loadImageFile` returns without a word when
-//    the File's type does not start with `image/`, and `img.onerror` only revokes the object URL;
-//  - the obsvered failure on a REMOTE origin is that every DOM-only criterion passes while every
-//    handler-dependent one fails with no console error and no status text, which is exactly what a
-//    dispatch that never reaches a listener looks like — or what a listener that refuses looks like.
-//
-// So this reports, for each photo size: whether a probe-installed listener SAW the change event, what
-// type/size it carried, whether the app then showed its stage, and the app's own status line. A probe
-// listener and the app's listener both receive the same event, so "seen" separates "the event did not
-// arrive" from "the app received it and did nothing".
+// Both facts need asking because the app's load path is SILENT on refusal: `loadImageFile` returns
+// without a word when the File's type is not `image/*`, and `img.onerror` only revokes the object URL.
+// So a probe-installed listener sits beside the app's on #file-input — "the event arrived and the app
+// did nothing" is then distinguishable from "the event never arrived" (the harness-timing failure that
+// used to make every handler-dependent criterion fail on a remote origin; see docs/VERIFICATION.md).
 (async () => {
   const r = { steps: [], errors: [] };
   const log = (k, v) => r.steps.push([k, v]);

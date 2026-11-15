@@ -108,17 +108,11 @@ async def main(probe_path, url_match="8123"):
         await send("Page.reload", {"ignoreCache": True})
         await asyncio.sleep(2.5)
 
-        # WAIT FOR THE APP, not for a duration. The fixed 2.5 s above is a floor, not a guarantee:
-        # on a REMOTE origin (GitHub Pages) index.html plus four ES modules come over the network and
-        # the app's constructor may still not have run — and a probe's first act is usually to
-        # dispatch `change` on #file-input, whose listener the constructor installs. An event with no
-        # listener is LOST with no error, so every DOM-only criterion passes and every
-        # handler-dependent one fails while the console stays clean: a harness-timing failure wearing
-        # an app-failure costume. Measured on a cold remote origin: boot still incomplete at the 2.5 s
-        # mark, and the same page loaded a photo 271 ms after it really booted.
-        #
-        # The marker is the emoji picker: its 76 buttons are created by CanvasApp's constructor, so a
-        # non-empty #emoji-picker means the module executed and the handlers are attached.
+        # WAIT FOR THE APP, not for a duration: the 2.5 s above is a floor, and a REMOTE origin needs
+        # longer than it. A probe's first act is usually to dispatch `change` on #file-input, whose
+        # listener the app's constructor installs — an event with no listener is LOST with no error,
+        # which reads as every DOM-only criterion passing while every handler-dependent one fails.
+        # The marker is the emoji picker: the constructor creates its 76 buttons. Doc: VERIFICATION.md.
         boot_t0 = time.monotonic()
         boot_deadline = boot_t0 + float(os.environ.get("E2E_BOOT_TIMEOUT", "20"))
         boot_expr = (
@@ -134,13 +128,12 @@ async def main(probe_path, url_match="8123"):
                 booted = True
                 break
             await asyncio.sleep(0.25)
-        print(f"e2e: app booted in {round((time.monotonic() - boot_t0) * 1000)} ms" if booted
-              else "e2e: app boot TIMED OUT")
-        if not booted:
-            # Not fatal: a diagnostic may deliberately read static markup. But say so loudly, because
-            # a probe that needed the app will now report handler-dependent criteria RED for a reason
-            # that is the harness's, not the app's.
-            print("e2e: WARNING — the app marker never appeared; a handler-dependent criterion is about to fail for a harness reason")
+        if booted:
+            print(f"e2e: app booted in {round((time.monotonic() - boot_t0) * 1000)} ms")
+        else:
+            # Not fatal — a diagnostic may deliberately read static markup — but said loudly, because
+            # a probe that needed the app now reports RED for the harness's reason, not the app's.
+            print("e2e: app boot TIMED OUT — a handler-dependent criterion is about to fail for a harness reason")
 
         # top-level await is illegal in a classic script, hence the async wrapper.
         # Cache-buster: GitHub Pages' CDN caches static files (~10 min), so a
