@@ -76,6 +76,18 @@ formats only. Measured here: JPEG 524/1370/2396/6119 KB and WebP 886/1520/2407/7
 q 0.5/0.8/0.92/1.0. It cannot measure Safari's behaviour — no canvas encoder there at
 all — so that fallback is a unit-tested pure function instead.
 
+`diag-export-compression-probe.js` asks which lever actually moves an export's byte
+count, on a deterministic 4032×3024 photo-like canvas (gradient + bounded noise):
+13 format × level × resolution cells, logging `{side, px, label, q, got, kb, ms}` plus
+three computed comparisons. It is the measurement M16's plan rests on. Measured here,
+Chrome 157: at full resolution PNG **24,213 KB**, WebP q1.0 13,600, JPEG 0.92 4,893,
+JPEG 0.50 1,091, WebP 0.75 2,652; at a 2048 long edge those become 5,793 / 3,069 / 821 /
+122 / 216; at 1280, JPEG 0.92 is 230. So **resolution is the dominant lever** (12.2 MP →
+3.1 MP is −83.2%, 12.2 MP → 1.2 MP −95.3%, against −77.7% for the whole JPEG level range),
+and **lossless WebP beats PNG by 43.8% at identical pixels** — which is why `1.0` is now a
+named WebP tier instead of a level. Encode cost is the other finding: JPEG 108 ms, PNG
+383 ms, WebP 0.75 1,115 ms, WebP q1.0 2,869 ms on a 12 MP photo.
+
 `diag-layers-paint-probe.js` asks whether the CANVAS follows the array order after a
 reorder, with no gesture involved at all: it adds the black and white squares,
 calls `store.moveTo` directly, and reports the pixel at their shared centre before
