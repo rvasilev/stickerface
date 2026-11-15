@@ -195,6 +195,20 @@
       <section aria-labelledby="export-quality-heading">
         <details>
           <summary><h2 id="export-quality-heading">Export quality</h2></summary>
+          <!-- The size is the control that actually decides a file's size: on a 12.2 MP photo a
+               2048 px long edge is 83% fewer bytes than full resolution and 1280 is 95%, against
+               78% for the whole JPEG level range below (docs/VERIFICATION.md,
+               diag-export-compression-probe.js). Full resolution stays the default — this is the
+               only control here that can reduce the pixels, so it never does so unasked, and the
+               status line always names the dimensions that were really written. -->
+          <div class="export-level">
+            <label for="export-size">Size</label>
+            <select id="export-size">
+              <option value="full" selected>Full resolution</option>
+              <option value="large">Large 2048 px</option>
+              <option value="web">Web 1280 px</option>
+            </select>
+          </div>
           <div class="export-level">
             <label for="export-level-jpeg">JPEG</label>
             <select id="export-level-jpeg">
@@ -211,9 +225,12 @@
               <option value="balanced">Balanced</option>
               <option value="better" selected>Better</option>
               <option value="maximum">Maximum</option>
+              <!-- The one tier that is not a size saving: 1.0 switches the WebP encoder to true
+                   lossless, so it is the largest file here and still ~44% smaller than PNG. -->
+              <option value="lossless">Lossless</option>
             </select>
           </div>
-          <p class="note" id="export-level-note">PNG is lossless — it has no compression level. Levels apply to JPEG and WebP, and the same level gives different sizes in each.</p>
+          <p class="note" id="export-level-note">PNG is lossless — it has no compression level. Levels apply to JPEG and WebP, and the same level gives different sizes in each. WebP's Lossless tier keeps every pixel: it is larger than every lossy level and still about 44% smaller than PNG.</p>
         </details>
       </section>
 

@@ -9,7 +9,7 @@ import {
   decodeCustomBitmap,
   paint,
 } from './render.js';
-import { exportImage, downloadBlob, cappedExportNote, levelValue, readExportSettings, writeExportSettings } from './export.js';
+import { exportImage, downloadBlob, cappedExportNote, levelValue, longEdge, readExportSettings, writeExportSettings } from './export.js';
 import {
   px,
   norm,
@@ -183,6 +183,7 @@ class CanvasApp {
       exportWebp: $('#btn-export-webp'),
       levelJpeg: $('#export-level-jpeg'),
       levelWebp: $('#export-level-webp'),
+      exportSize: $('#export-size'),
       exportStatus: $('#export-status'),
       applyNext: $('#btn-apply-next'),
       startOver: $('#btn-start-over'),
@@ -805,8 +806,8 @@ class CanvasApp {
       this.loadImageFile(file);
     });
 
-    // The level picks are preferences, not session state: they survive a "Start over" and are
-    // written immediately, so the next export uses what the panel shows.
+    // The level and size picks are preferences, not session state: they survive a "Start over" and
+    // are written immediately, so the next export uses what the panel shows.
     for (const [key, format] of [['levelJpeg', 'jpeg'], ['levelWebp', 'webp']]) {
       const sel = this.els[key];
       if (!sel) continue;
@@ -816,6 +817,14 @@ class CanvasApp {
         this.setExportStatus(`${this._formatName(format)} level: ${this._exportLevelLabel(format)} — used by the next export.`);
       });
     }
+
+    // The size lives in the same stored preference, and is the one pick that changes the pixels —
+    // so the confirmation names the size in the markup's own words rather than a number.
+    this.els.exportSize?.addEventListener('change', () => {
+      this._exportLevels.size = this.els.exportSize.value;
+      writeExportSettings(this._storage(), this._exportLevels);
+      this.setExportStatus(`Export size: ${this._exportSizeLabel()} — used by the next export.`);
+    });
 
     this.els.strength.addEventListener('input', () => {
       const st = this._selectedSticker();
@@ -1864,31 +1873,46 @@ class CanvasApp {
     return (chosen && chosen.trim()) || this._exportLevels[format] || '';
   }
 
-  /** Stored levels onto the selects, once, before the first export. */
+  /** The chosen export size's own words, from the select (the markup owns the wording). */
+  _exportSizeLabel() {
+    const chosen = this.els.exportSize?.selectedOptions?.[0]?.textContent;
+    return (chosen && chosen.trim()) || '';
+  }
+
+  /** A file size a person reads: one decimal above a megabyte, whole KB below it. The number is
+   *  REPORTED, never promised — the bytes exist only once the encode has run. */
+  _sizeLabel(bytes) {
+    if (!Number.isFinite(bytes)) return '';
+    return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+  }
+
+  /** Stored levels AND size onto the selects, once, before the first export. */
   _loadExportSettings() {
     this._exportLevels = readExportSettings(this._storage());
     for (const [key, format] of [['levelJpeg', 'jpeg'], ['levelWebp', 'webp']]) {
       const sel = this.els[key];
       if (sel && this._exportLevels[format]) sel.value = this._exportLevels[format];
     }
+    if (this.els.exportSize && this._exportLevels.size) this.els.exportSize.value = this._exportLevels.size;
   }
 
   async doExport(format) {
     if (!this.image) return;
     // PNG has no level at all: levelValue() returns undefined and the status line omits it, rather
-    // than showing a quality number the encoder ignores.
+    // than showing a quality number the encoder ignores. The size applies to every format.
     const level = levelValue(format, this._exportLevels[format]);
-    this.setExportStatus('Exporting at full resolution…');
+    const edge = longEdge(this._exportLevels.size);
+    this.setExportStatus(`Exporting${edge ? ` at a ${edge} px long edge` : ' at full resolution'}…`);
     try {
       // A partial asset failure must never disable the app: export runs
       // whenever an image is loaded; undecodable stickers draw as a block.
       const { blob, filename, degraded, compositeSize, format: actual } = await exportImage(
-        this.store.state, this.bitmaps, this.customBitmaps, this._mimeFor(format), this.fallback, level,
+        this.store.state, this.bitmaps, this.customBitmaps, this._mimeFor(format), this.fallback, level, edge,
       );
       downloadBlob(blob, filename);
-      // Loud, never silent: when the photo exceeds the canvas cap the
-      // export is lower resolution than requested — say exactly what
-      // was exported and what was asked for, next to the saved line.
+      // Loud, never silent: when a limit binds, the export is lower resolution than
+      // requested — say exactly what was exported and what was asked for, next to
+      // the saved line, and say WHICH limit did it.
       // (export.js keeps this text in one place: cappedExportNote().)
       const capNote = cappedExportNote(compositeSize);
       // A browser with no encoder for the requested type answers with PNG and says NOTHING about it
@@ -1898,10 +1922,12 @@ class CanvasApp {
         ? ` This browser cannot encode ${this._formatName(format)} — saved as ${this._formatName(actual.ext === 'jpg' ? 'jpeg' : actual.ext)} instead.`
         : '';
       const levelNote = level === undefined ? '' : `, ${this._exportLevelLabel(format)}`;
+      const sizeNote = edge ? `, ${edge} px` : '';
+      const detail = `${this._formatName(format)}${levelNote}${sizeNote}, ${this._sizeLabel(blob.size)}`;
       this.setExportStatus(
         (degraded
-          ? `Saved ${filename} (${this._formatName(format)}${levelNote}) — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no drawable asset and were exported as a shaded block.`
-          : `Saved ${filename} (${this._formatName(format)}${levelNote}) — metadata (EXIF/GPS) removed.`)
+          ? `Saved ${filename} (${detail}) — metadata (EXIF/GPS) removed. ${degraded} sticker(s) had no drawable asset and were exported as a shaded block.`
+          : `Saved ${filename} (${detail}) — metadata (EXIF/GPS) removed.`)
         + fallbackNote
         + (capNote ? ` ${capNote}` : ''),
       );
