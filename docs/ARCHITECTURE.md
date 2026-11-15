@@ -148,7 +148,9 @@ The levels are a quality dial, not a size promise, and the measurement says whic
 bytes** at a 2048 px long edge and 95% at 1280, against 78% for the entire JPEG level range. So the
 size is a `<select>` above the levels — `Full resolution` (the default, null), `Large 2048 px`,
 `Web 1280 px` — and it is the only control in the app that can reduce the pixels, which is why the
-default is full and `#export-status` always names the dimensions that were really written.
+default is full and `#export-status` always names the dimensions that were really written (the setting
+is what the *picker* reports, never what the result claims), while `cappedExportNote()` explains the
+reduction without repeating those numbers.
 
 `exportImage(..., maxLongEdge)` carries the choice to `compositeCanvas()`, which composes the two
 limits as `exportSize(W, H, cap, Math.min(currentMaxCanvasSide(), userEdge))`: a user's edge can

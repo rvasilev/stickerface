@@ -409,6 +409,27 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-15** — the AUDIT + de-slop pass over the day's work (M16, the harness fix, the docs).
+  Five findings, four fixed, one recorded. (1) **The export status reported the SETTING as the
+  result** — `sizeNote = edge ? ', 1280 px' : ''` named the chosen long edge, so `Web 1280 px` on a
+  1000px photo claimed 1280 px for a file written at 1000x750, and `ARCHITECTURE.md` had *already*
+  claimed the status "always names the dimensions that were really written": the doc was right and
+  the code was wrong. The status is now built from `compositeSize.w/h`, and `cappedExportNote()`
+  explains the reduction rather than repeating the numbers. (2) `compositeCanvas()` read
+  `currentMaxCanvasPixels()` **twice** — two UA reads for one canvas, and `currentMaxCanvasSide()`
+  duplicated its try/catch; one `currentUA()` accessor now feeds both, read once. (3) `cappedExportNote`
+  was a pure two-branch function with **no unit test** while every other pure function in the module is
+  pinned — three cases added (nothing reduced / the user's size / the browser's cap, each forbidding the
+  other branch's blame). (4) A JSDoc block sat inside an object literal, and a header paragraph was
+  restated at two other sites — both cut, along with four `@param` lines that only restated their
+  signatures. (5) `tests/e2e/run.py`'s new wait carried 20 comment lines for 22 code lines, and
+  `diag-live-boot-probe.js` had a typo (`obsvered`) plus a header describing a hypothesis it had since
+  answered — trimmed to the rule, with the measurement left in `docs/VERIFICATION.md`.
+  Re-proved the gate's discrimination with one mutation per claim: **8/9** each, `dimensionsAreReported`
+  RED for the reporting mutation, `sizeReachesTheEncoder` RED for the reduction one — and the second
+  run reports 2600×1800 honestly, which is exactly what shows the reporting criterion measures
+  reporting and not reduction. Unit tests 182 (three new), `export-size-probe` 9/9,
+  `export-format-probe` 7/7, journey 27/27, cache `sf-0b6df76ec368`.
 - **2026-11-15** — the E2E harness's remote-origin defect, found while verifying M16 against the LIVE
   URL. Running the new gate against `https://rvasilev.github.io/stickerface/` reported 3/9 with
   `photoLoaded: false`, and the journey gate 13/23 on the same run: every DOM-only criterion passed,
@@ -440,9 +461,13 @@ It is a real browser, a real file upload and real pixel assertions — see
   Declined on the same measurement: a WASM PNG optimiser (`@jsquash/png`, recorded in DEPS.md with its
   revisit trigger), a target-file-size mode, and consolidating the three buttons. The gate
   (`export-size-probe.js`, 9/9) wraps `HTMLCanvasElement.prototype.toBlob` — the only place the
-  composited dimensions exist — because a status string can name a size the composite never used;
-  mutation (`undefined` instead of the chosen edge) leaves the status naming "1280 px" and turns
-  exactly `sizeReachesTheEncoder` + `dimensionsAreReported` RED at 7/9. Two probe traps were recorded
+  composited dimensions exist — because a status string can name a size the composite never used.
+  Mutation-proof, ONE claim at a time (each run 8/9, the tree clean after restoring): `undefined` in
+  place of the chosen edge → exactly `sizeReachesTheEncoder` RED; reporting the setting instead of the
+  written dimensions → exactly `dimensionsAreReported` RED. The second mutation is the one that
+  matters for the reporting half: after this pass the status is built from what was written, so the
+  un-reduced run reports 2600×1800 honestly and the reporting criterion can no longer be satisfied by
+  the reduction happening. Two probe traps were recorded
   from this work: a comparison can pass vacuously when the two outputs are not the KIND the claim
   names (the lossless criterion was green before the tier existed, comparing two lossy encodes), and
   a step-phase reader must be named `window.__sfReadTouch` or the run reports `READER FAILED` and
