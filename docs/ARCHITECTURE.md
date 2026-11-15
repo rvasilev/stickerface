@@ -118,12 +118,17 @@ sizes in JPEG and WebP (886 KB vs 524 KB at 0.5 on the same canvas, so one share
 mislead), and `1.0` is not "maximum quality" but a different codec mode — WebP switches to true
 lossless there (2.4 MB → 7.3 MB from 0.92 to 1.0). `EXPORT_LEVELS` therefore tops out at 0.95,
 and `better` is 0.92 — the value this module hardcoded before levels existed — so the default
-JPEG export is byte-for-byte what it always was.
+JPEG export is byte-for-byte what it always was. WebP additionally offers `lossless` (1.0) as its
+own NAMED tier: as a lossy step that value is a codec-mode switch, but as a tier it is the
+browser's true-lossless encoder, and it is worth naming because measured lossless WebP is 43.8%
+smaller than PNG at identical pixels — a saving that costs no dependency.
 
 **PNG has no level, and the UI says so instead of showing a dead control.** `toBlob`'s quality
 argument applies to lossy formats only: measured byte-identical output (12,773,958 bytes) at
 0.5, 0.8, 0.92 and 1.0. A control that changed nothing would be the update-bar failure mode in
 another costume.
+
+### The extension follows what was produced, never what was asked for
 
 **The extension follows what the browser PRODUCED, never what it was asked for.**
 `resolveExportFormat(requested, actual)` is pure, and it exists because the mismatch is SILENT:
@@ -135,6 +140,22 @@ extension. The returned `blob.type` is the only signal there is, which is why it
 the decision (and why a stub `blob.type` in a unit test stands in for Safari).
 `#export-status` names the format and level actually used, and says "This browser cannot encode
 WebP — saved as PNG instead" when the fallback happens.
+
+### Export size: the lever that actually decides a file
+
+The levels are a quality dial, not a size promise, and the measurement says which lever leads
+(`diag-export-compression-probe.js`, Chrome 157, a 12.2 MP photo): **resolution is worth 83% of the
+bytes** at a 2048 px long edge and 95% at 1280, against 78% for the entire JPEG level range. So the
+size is a `<select>` above the levels — `Full resolution` (the default, null), `Large 2048 px`,
+`Web 1280 px` — and it is the only control in the app that can reduce the pixels, which is why the
+default is full and `#export-status` always names the dimensions that were really written.
+
+`exportImage(..., maxLongEdge)` carries the choice to `compositeCanvas()`, which composes the two
+limits as `exportSize(W, H, cap, Math.min(currentMaxCanvasSide(), userEdge))`: a user's edge can
+never raise a browser cap, and the area cap passes through untouched, so a browser whose AREA limit
+binds still gets its full allowance. `compositeSize.reducedBy` records which limit applied
+(`'size'` / `'canvas'` / `null`) and `cappedExportNote()` picks its sentence from that — the note
+written for a photo the browser could not allocate must not be printed for a size the user chose.
 
 ## Start over: the reset contract
 

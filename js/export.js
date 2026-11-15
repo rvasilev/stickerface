@@ -1,18 +1,13 @@
-// Full-resolution export. Export composites at image.naturalWidth /
-// naturalHeight whenever the browser can allocate that canvas — never at
-// preview scale — then canvas.toBlob() (which also strips EXIF/GPS: surface
-// that in the UI as a privacy feature).
+// Full-resolution export: composite at image.naturalWidth/naturalHeight — never at preview scale —
+// then canvas.toBlob(), which also strips EXIF/GPS (surfaced in the UI as a privacy feature).
 //
-// A partial asset failure must never disable the app: exportImage returns a
-// `degraded` count of stickers that had no drawable asset (no bitmap AND no
-// <img> fallback) and so draw as a shaded block. A sticker drawn from the
-// <img> fallback draws the real artwork, so it is not degraded.
+// Two limits can reduce what is written, and compositeSize names which one did: the browser's canvas
+// area cap (Safari 4096x4096 through iOS 17, 8192x8192 in iOS 18; Chrome far higher — above it a
+// natural-size canvas allocates nothing and toBlob resolves null) and the user's own export size.
+// Normalized state is scale-free, so a reduced export is still correct, only lower resolution.
 //
-// Browsers cap canvas area (Safari 4096x4096 through iOS 17, 8192x8192 in
-// iOS 18; Chrome far higher). Above the cap a natural-size canvas allocates
-// nothing and toBlob resolves null, so exportSize() scales the composite
-// down to the cap (normalized state is scale-free, so the result is still
-// correct, only lower resolution) and said so in the returned size fields.
+// A partial asset failure must never disable the app: exportImage returns a `degraded` count of
+// stickers with no drawable asset, which paint as a shaded block.
 
 import { paint, partitionStickers } from './render.js';
 
@@ -27,14 +22,11 @@ export const SAFARI_MODERN_MAX_CANVAS_PIXELS = 67108864;
 
 /**
  * The levels a lossy export offers, per format. PNG is absent on purpose: `toBlob`'s quality
- * argument applies to lossy formats only, so a PNG "level" would be a control wired to nothing
- * (measured: byte-identical output across the whole range).
- *
- * `better` is 0.92 — the value this module hardcoded before levels existed — so the default JPEG
- * export is byte-for-byte what it always was. No LOSSY level reaches 1.0: for WebP that is not
- * "maximum" but a switch to true lossless (measured 2.4 MB -> 7.3 MB from 0.92), and JPEG at 1.0 is
- * still lossy and still triples the file. `webp.lossless` IS that switch, offered as its own named
- * tier, because lossless WebP is 43.8% smaller than PNG at identical pixels for no dependency.
+ * argument applies to lossy formats only (measured byte-identical output across the whole range).
+ * `better` is 0.92 — what this module hardcoded before levels existed — so a default JPEG export is
+ * byte-for-byte what it always was. No LOSSY level reaches 1.0 (for WebP that is a switch to true
+ * lossless, measured 2.4 MB -> 7.3 MB from 0.92); `webp.lossless` IS that switch, and it is worth a
+ * named tier because lossless WebP is 43.8% smaller than PNG at identical pixels for no dependency.
  */
 export const EXPORT_LEVELS = {
   jpeg: { smaller: 0.5, balanced: 0.75, better: 0.92, maximum: 0.95 },
@@ -42,10 +34,9 @@ export const EXPORT_LEVELS = {
 };
 
 /**
- * Long-edge targets — the setting that actually decides a file's size. Measured on a 12.2 MP
- * photo: a 2048 long edge is 83% fewer bytes than full resolution and 1280 is 95%, against 78% for
- * the entire JPEG level range. `full` is null, and null means "do not touch the pixels": reducing
- * an export is the user's call, never a default.
+ * Long-edge targets — the setting that actually decides a file's size. Measured on a 12.2 MP photo:
+ * a 2048 long edge is 83% fewer bytes than full resolution and 1280 is 95%, against 78% for the
+ * entire JPEG level range. `full` is null, and null means "do not touch the pixels".
  */
 export const EXPORT_SIZES = { full: null, large: 2048, web: 1280 };
 
@@ -68,8 +59,7 @@ export function longEdge(name) {
   return EXPORT_SIZES[name] ?? null;
 }
 
-/**
- * The quality for a format+level, or undefined for a format that has no level.
+/** The quality for a format+level, or undefined for a format that has no level (PNG).
  * @param {string} format 'png' | 'jpeg' | 'webp'
  * @param {string} [level] a key of EXPORT_LEVELS[format]
  * @returns {number|undefined}
@@ -81,14 +71,9 @@ export function levelValue(format, level) {
 }
 
 /**
- * What the browser actually produced, versus what it was asked for.
- *
- * The mismatch is SILENT: the HTML spec requires a browser that cannot encode the requested type to
- * export `image/png`, with no error and no rejection — and Safari has no canvas WebP encoder at
- * all, so asking for WebP there returns valid PNG bytes. The returned type is the only signal there
- * is, which is why the extension is derived from `actual`. Pure so the Safari case is unit-testable
- * without owning a Safari.
- *
+ * What the browser actually produced, versus what it was asked for. The mismatch is SILENT: the spec
+ * requires an unencodable type to be exported as `image/png` with no error, and Safari has no canvas
+ * WebP encoder at all — so the returned type is the only signal, hence the extension follows it.
  * @param {string} requested the mime that was asked for
  * @param {string} actual the returned Blob's type (may be missing)
  * @returns {{mime:string, ext:string, fellBack:boolean}}
@@ -99,22 +84,16 @@ export function resolveExportFormat(requested, actual) {
   return { mime, ext, fellBack: mime !== requested };
 }
 
-/**
- * The download name. Dumb on purpose: the base is already sanitised by exportImage, and the only
- * thing this adds is the extension — which must be the PRODUCED one, never the requested one.
- * @param {string} base sanitised photo name
- * @param {string} ext 'png' | 'jpg' | 'webp'
- * @returns {string}
- */
+/** The download name: the base is already sanitised by exportImage, and the extension must be the
+ *  PRODUCED one, never the requested one. */
 export function exportFilename(base, ext) {
   return `${base}_stickerface.${ext}`;
 }
 
 /**
- * Stored choices, validated against the CURRENT tables: a name that no longer exists — or a format
- * this build does not have — resolves to its default rather than propagating a stale value, and a
- * blob written before `size` existed reads as full resolution. Unreadable storage is a default,
- * never an exception: the same fail-safe shape as the coach flag.
+ * Stored choices, validated against the CURRENT tables: a name that no longer exists resolves to its
+ * default rather than propagating, a blob written before `size` existed reads as full resolution, and
+ * unreadable storage is a default — never an exception (the coach flag's fail-safe shape).
  * @param {{getItem:function(string):?string}} [storage]
  * @returns {{jpeg:string, webp:string, size:string}}
  */
@@ -185,10 +164,9 @@ function iosMajorVersion(ua) {
 }
 
 /**
- * Largest canvas area, in pixels, the current browser can allocate.
- * Pure (no DOM): pass the browser's UA from the DOM wrapper below; the
- * 268,435,456 default is the value pdf.js uses for "everything else", which
- * keeps the normal case at full resolution while Safari gets its real caps.
+ * Largest canvas area, in pixels, the current browser can allocate. Pure (the UA is an argument);
+ * the 268,435,456 default is pdf.js's "everything else" value, which keeps the normal case at full
+ * resolution while Safari gets its real caps.
  * @param {string} [ua]
  * @returns {number} maximum canvas area in px
  */
@@ -203,13 +181,10 @@ export function maxCanvasPixels(ua) {
 }
 
 /**
- * Per-side canvas limit, in px, for the current browser. An area cap alone is not
- * enough: a wide photo can clear the area and still exceed the SIDE, so the
- * allocation fails and the message blames the area. 8192x2048 is exactly at
- * Safari's legacy area cap, so an area-only guard passes it through with a side of
- * 8192 — twice the 4096 Safari will allocate. Non-Safari returns Infinity: Chrome
- * allocates far larger sides, and inventing a cap there would refuse exports that
- * work today.
+ * Per-side canvas limit, in px. An area cap alone is not enough: 8192x2048 is exactly at Safari's
+ * legacy area cap, so an area-only guard passes it through with a side of 8192 — twice what Safari
+ * allocates, and the failure message then blames the area. Non-Safari returns Infinity: inventing a
+ * cap there would refuse exports that work today.
  * @param {string} [ua]
  * @returns {number} maximum canvas side in px (Infinity when unconstrained)
  */
@@ -223,16 +198,15 @@ export function maxCanvasSide(ua) {
 }
 
 /**
- * The size export.js actually composites at: the requested size, scaled down
- * only when its area exceeds `cap` or its longer side exceeds `maxSide` (never
- * upscaled, aspect preserved by one linear factor). Pure so the boundary lives in
- * unit tests.
+ * The size export.js actually composites at: the requested size, scaled down only when its area
+ * exceeds `cap` or its longer side exceeds `maxSide` (never upscaled, aspect preserved by one linear
+ * factor). Pure so the boundary lives in unit tests.
  * @param {number} W requested width px
  * @param {number} H requested height px
  * @param {number} [cap] maximum canvas area in px (default: the default cap)
  * @param {number} [maxSide] maximum canvas side in px (default: unconstrained)
- * @returns {{w:number, h:number, scale:number, capped:boolean}} capped size,
- *   canvas px per natural px, and whether the size was reduced
+ * @returns {{w:number, h:number, scale:number, capped:boolean}} capped size, canvas px per natural
+ *   px, and whether the size was reduced
  */
 export function exportSize(W, H, cap = DEFAULT_MAX_CANVAS_PIXELS, maxSide = Infinity) {
   const w = Number.isFinite(W) ? W : 0;
@@ -270,9 +244,9 @@ function currentMaxCanvasSide() {
 }
 
 /**
- * Composite state onto a fresh canvas (no Blob; testable). At natural size unless a limit binds:
- * the browser's canvas cap, or the user's own export size. compositeSize reports the size actually
- * used AND which limit did the reducing, so nothing downstream has to guess or blame the wrong one.
+ * Composite state onto a fresh canvas (no Blob; testable). At natural size unless a limit binds — the
+ * browser's canvas cap or the user's export size. compositeSize reports the size used AND which limit
+ * reduced it, so nothing downstream can blame the wrong one.
  * @param {object} state Store state {image, stickers}
  * @param {Map<string, ImageBitmap>} bitmaps
  * @param {Map<string, ImageBitmap>} [customBitmaps]
@@ -341,9 +315,8 @@ export function cappedExportNote(compositeSize) {
 }
 
 /**
- * Count stickers with no drawable asset (no bitmap and no fallback <img>),
- * which paint as a shaded block. A sticker with a fallback <img> draws the
- * real artwork and is not counted. Purely informative — never blocks export.
+ * Count stickers with no drawable asset (no bitmap and no fallback <img>), which paint as a shaded
+ * block. Informative only — it never blocks an export.
  * @param {object} state Store state {stickers}
  * @param {Map<string, ImageBitmap>} bitmaps emoji bitmaps by src
  * @param {Map<string, ImageBitmap>} [customBitmaps] user-image bitmaps by src
@@ -357,8 +330,8 @@ export function degradedStickerCount(state, bitmaps, customBitmaps, fallback) {
 }
 
 /**
- * Export as a downloadable Blob. Composites at full (natural) resolution unless the user chose an
- * export size or the browser's canvas limit binds (compositeSize says which).
+ * Export as a downloadable Blob, at full resolution unless the user chose a size or the browser's
+ * canvas cap binds (compositeSize says which).
  * @param {object} state
  * @param {Map<string, ImageBitmap>} bitmaps
  * @param {Map<string, ImageBitmap>} [customBitmaps]
@@ -366,7 +339,7 @@ export function degradedStickerCount(state, bitmaps, customBitmaps, fallback) {
  *   encoder for the requested type answers with PNG, which `format` reports
  * @param {Map<string, HTMLImageElement>} [fallback] img fallbacks by src
  * @param {number} [quality] lossy quality (ignored for PNG; see EXPORT_LEVELS)
- * @param {number} [maxLongEdge] the user's chosen long edge in px, or Infinity for full resolution
+ * @param {number} [maxLongEdge] the user's chosen long edge in px, or null/Infinity for full
  * @returns {Promise<{blob: Blob, filename: string, degraded: number, compositeSize: object,
  *   format: {mime: string, ext: string, fellBack: boolean}}>}
  */

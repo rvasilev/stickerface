@@ -396,6 +396,7 @@ blur patch still renders and exports; removing one `hidden` attribute in
 | **M13** | three-handle chrome, no mode: the selected sticker carries ONE resize handle (SE) + ONE rotate dot, and its body is the move handle — with a `pointer-events: none` move mark at the centre as the signpost. The M9 mode row, its `m`/`r` keys and its two hint strings are deleted; the chrome hides itself below 36 CSS px (the measured free-at-36/blocked-at-30 boundary) and returns when the sticker grows, and never mid-gesture. Desktop gets a `move` cursor over a sticker | `tests/e2e/three-handle-probe.js` = 11/11, `tests/e2e/pinch-shrink-probe.js` = 3/3; `handles-probe`, `selection-probe`, `rotate-grab-probe`, `pad-probe`, `handle-pinch-probe`, `coach-probe` and the journey gate all green; `mode-probe.js` retired | **done** (2026-11-14) |
 | **M14** | export formats and compression levels: a third format (WebP) plus a per-format level the encoder actually honours. PNG gets an honest sentence instead of a dead control (measured: `toBlob` ignores the quality argument for PNG entirely), and the file extension follows what the browser PRODUCED — a browser with no WebP encoder answers with PNG silently | `tests/e2e/export-format-probe.js` = 7/7, `tests/export-format.test.js` green (Safari's fallback stubbed as a `blob.type`), `polish-probe` + the journey gate still green | **done** (2026-11-15) |
 | **M15** | "Start over": the reset an INSTALLED app has no other way to perform — back to the empty stage (and to "choose a photo") with the photo, stickers, history and carried layout cleared, two presses to discard, refused mid-gesture | `tests/e2e/reset-probe.js` = 7/7 (virgin-signature diff; dropping `pendingLayout` from the reset = RED and names that field) | **done** (2026-11-15) |
+| **M16** | export SIZE and the WebP lossless tier: a long-edge size the user chooses (`Full resolution` default, `Large 2048 px`, `Web 1280 px`) plus WebP's `Lossless` tier. The two levers a measurement found actually decide a file, priced against the level dial: resolution is worth 83–95% of the bytes and the whole level range 78%; lossless WebP is 43.8% under PNG at identical pixels. The size claim is read at the ENCODER (the composited canvas), never off the status line | `tests/e2e/export-size-probe.js` = 9/9 — mutation: `undefined` instead of the chosen edge → **7/9**, exactly `sizeReachesTheEncoder` + `dimensionsAreReported` RED. `export-format-probe.js` still 7/7, `export-format.test.js` green | **done** (2026-11-15) |
 
 M11 (installable) and M12 (offline) shipped after M10; their records are in the status
 log below rather than as rows here.
@@ -408,6 +409,28 @@ It is a real browser, a real file upload and real pixel assertions — see
 
 ## Status log
 
+- **2026-11-15** — export SIZE and the WebP lossless tier (M16). The ask was "compression settings for
+  exported formats" — which M14 had already shipped as levels, so the first thing this did was
+  MEASURE which lever actually moves a file (`diag-export-compression-probe.js`, a deterministic
+  4032×3024 photo-like canvas, 13 format × level × resolution cells): resolution is worth **83%** of
+  the bytes at a 2048 px long edge and **95%** at 1280, against **78%** for the entire JPEG level
+  range — the dial was never the lever. So the size became the control: `Full resolution` (default,
+  null), `Large 2048 px`, `Web 1280 px`, threaded through `exportImage(..., maxLongEdge)` and composed
+  in `compositeCanvas()` as `Math.min(currentMaxCanvasSide(), userEdge)` so a user's edge can never
+  raise a browser cap, with `compositeSize.reducedBy` naming which limit applied so the canvas-cap
+  sentence cannot be printed for a size the user chose. Second finding: lossless WebP (the `1.0` the
+  level table deliberately excludes as a LOSSY step) is **43.8% smaller than PNG at identical
+  pixels** — so it is now its own named tier, the only lossless saving available for no dependency.
+  Declined on the same measurement: a WASM PNG optimiser (`@jsquash/png`, recorded in DEPS.md with its
+  revisit trigger), a target-file-size mode, and consolidating the three buttons. The gate
+  (`export-size-probe.js`, 9/9) wraps `HTMLCanvasElement.prototype.toBlob` — the only place the
+  composited dimensions exist — because a status string can name a size the composite never used;
+  mutation (`undefined` instead of the chosen edge) leaves the status naming "1280 px" and turns
+  exactly `sizeReachesTheEncoder` + `dimensionsAreReported` RED at 7/9. Two probe traps were recorded
+  from this work: a comparison can pass vacuously when the two outputs are not the KIND the claim
+  names (the lossless criterion was green before the tier existed, comparing two lossy encodes), and
+  a step-phase reader must be named `window.__sfReadTouch` or the run reports `READER FAILED` and
+  contributes no criteria.
 - **2026-11-15** — export formats + compression levels (M14) and "Start over" (M15), in one
   packet. M14: a third export button (WebP) and a per-format level. Two platform facts decided
   the shape, both measured or sourced before any code: `toBlob` ignores the quality argument for

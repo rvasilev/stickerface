@@ -41,7 +41,7 @@ Everything else in the current build is platform API: `Canvas2D`,
 | `canvaskit-wasm` | BSD-3-Clause | 6.98 MB `.wasm` | Replaces an API we already have. |
 | `fabric` | MIT | 290 KB min | Genuinely tempting — ships `Blur` + `Pixelate` filters, handles, layering, JSON serialisation (free undo/redo). Rejected for v1 only because our own geometry is written, tested and dependency-free. **Named escape hatch** if the gesture code becomes a maintenance burden. |
 | `moveable` | MIT | dist is a monorepo of builds; last publish 2023 | Targets DOM elements; our stickers live inside the canvas. Mismatch + stale. |
-| `@jsquash/*` | Apache-2.0 | PNG wasm 0.17 MB, JPEG 518 KB unpacked | Only worth it for quantified JPEG quality/subsampling or AVIF/WebP output. `canvas.toBlob` covers the default path natively and off the main thread. |
+| `@jsquash/*` | Apache-2.0 | PNG wasm 0.17 MB, JPEG 518 KB unpacked | Only worth it for quantified JPEG quality/subsampling or AVIF/WebP output. `canvas.toBlob` covers the default path natively and off the main thread. **Declined a second time for PNG, now on a measurement** (2026-11-15): a PNG optimiser buys a low double-digit percent at best, because PNG's size on a photo is lossless encoding of photographic entropy rather than encoder slack — while the native lossless WebP encoder is 43.8% smaller than PNG at identical pixels for 0 bytes of wasm, and the export-size control is worth 83–95%. Named revisit trigger: someone who needs PNG *specifically* and has hit a hard external size cap. |
 | `@vladmandic/face-api` | MIT | heavy (tfjs) | MediaPipe is smaller and better-suited. |
 | Pyodide / OpenCV.js | MPL-2.0 / Apache-2.0 | 10 MB+ / 8–10 MB | For primitives we do not need. |
 

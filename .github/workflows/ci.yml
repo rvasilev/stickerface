@@ -199,6 +199,16 @@ jobs:
           E2E_PROBE: tests/e2e/export-format-probe.js
         run: bash scripts/e2e.sh
 
+      # The export SIZE and the lossless tier. This gate wraps HTMLCanvasElement.prototype.toBlob,
+      # so the claim it tests is the encoder's real input: the canvas dimensions the app composited
+      # at, plus the produced Blob. A status line naming "1280 px" while the composite is still at
+      # full resolution is exactly the failure this criterion exists to catch (mutation-proved: pass
+      # `undefined` instead of the chosen edge and it goes 7/9).
+      - name: Gate — the export size and the WebP lossless tier
+        env:
+          E2E_PROBE: tests/e2e/export-size-probe.js
+        run: bash scripts/e2e.sh
+
       # A reset's failure mode is the field it FORGETS, and the dangerous one is invisible: a
       # stale pendingLayout is applied to the next photo. So this gate captures the app's virgin
       # signature before any photo, mutates hard, resets, and diffs by name — a forgotten field

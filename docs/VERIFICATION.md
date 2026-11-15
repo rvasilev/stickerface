@@ -48,6 +48,7 @@ probe must never read as success).
 | `offline-probe.js` — with the origin server stopped: the worker is genuinely offline (asserted on the worker, not just the page), it serves the shell from its own cache, all 76 emoji are precached, the stale `sf-v0` is gone, a seeded neighbour's cache is untouched, a first install offers no update bar, a sticker is placed and exported, and every request stayed same-origin | 12 (11 page-side + 1 from the harness) | green (2026-11-14) |
 | `update-probe.js` — the update TRANSITION, the one gate that spans two navigations: a worker that WAITS behind the controller (the same script under a URL this run never used), the bar offered by the app's own load path with its button owning its centre, one real CDP click, and then — read in the document the app's own reload produces — a navigation that is a `reload`, a controller that is a DIFFERENT worker than the one before the click, and a bar that is gone | 4 | green (2026-11-15) |
 | `export-format-probe.js` — the three export formats and the per-format level, read as BYTES: the WebP button exists, one level select per lossy format and none for PNG (which says why), a WebP export really encodes WebP and names a `.webp` file, **a lower level produces a strictly smaller file** (the criterion the plan's stop condition hangs on), the choice is persisted, and the two long-standing buttons still export their own formats. The photo is synthesised in-page (a gradient with noise) and the Blob is captured by wrapping `URL.createObjectURL` — the app's own download path | 7 | green (2026-11-15) — mutation-proved: handing the encoder a hardcoded 0.92 leaves the status naming "Smaller"/"Maximum" while both exports come back 449,996 B, and the gate goes **6/7** |
+| `export-size-probe.js` — the export SIZE and the WebP lossless tier, read at the ENCODER: a size select exists, a fresh profile still exports at natural dimensions, **choosing `Web 1280 px` really composites at a 1280 px long edge and produces strictly fewer bytes** (the criterion the plan's stop condition hangs on), the status names the dimensions actually written, the lossless tier is offered for WebP only and is the LARGER file within WebP (a quality choice, not a size saving) while still smaller than PNG of the same pixels, the choice is persisted, and the two long-standing export buttons still work. Captured by wrapping `HTMLCanvasElement.prototype.toBlob`, which is the only place the composited dimensions exist — a status string can name a size the composite never used | 9 | green (2026-11-15) — mutation-proved: passing `undefined` instead of the chosen edge leaves the status naming "1280 px" while the canvas stays 2600×1800, and the gate goes **7/9** with exactly `sizeReachesTheEncoder` and `dimensionsAreReported` RED |
 | `reset-probe.js` — "Start over" and the COMPLETENESS of a reset: the control exists and is gated on a loaded photo, the first press only arms (label changes, nothing is discarded), a second press returns the app to a **virgin-state signature** captured before any photo was loaded (20 fields, diffed by name — `virginDiff`), a live contact makes the reset refuse and leave the photo alone, and a photo loaded afterwards starts clean with no inherited layout | 7 | green (2026-11-15) — mutation-proved: dropping `pendingLayout` from the reset is RED with `virginDiff: ["pendingLayout"]` |
 | `hint-legibility-probe.js` — the stage hint stays legible over the photo it overlaps (own backdrop, ≥4.5:1 with a *light* photo behind it) and is not a click target | 5 | green |
 | `pad-probe.js` — the selected-sticker pad: nudges by the step, a held button is ONE undo entry, size −/+ keeps the pixel aspect, and a sticker shrunk to 22 CSS px is still movable | 7 | green (2026-11-14) |
@@ -414,6 +415,23 @@ rather than letting "no change" read as success.
 
 ## Traps
 
+- **A comparison between two things that are not the thing can pass as evidence.** The first draft of
+  `export-size-probe.js` asked whether "lossless WebP beats PNG" and it was GREEN before the tier
+  existed — because the WebP export silently fell back to the lossy `better` level (0.92), and a
+  lossy WebP is of course smaller than PNG. The criterion now GUARDS on the encoder having been handed
+  `1.0` (read off the wrapped `toBlob`), so an absent tier fails it instead of satisfying it. The
+  general shape: when a criterion compares two outputs, assert that each output is the KIND the claim
+  names, not just that they differ in the expected direction. The same trap is why `fullSizeIsTheDefault`
+  reads the canvas rather than the select's value.
+- **The status text is a claim; the canvas is the fact.** `#export-status` names the dimensions
+  written, and a probe that asserted the string alone would pass while the composite stayed at full
+  resolution — the update-bar failure mode again. Wrap `HTMLCanvasElement.prototype.toBlob` (this
+  gate's approach) or `URL.createObjectURL` (the format/level gate's) and assert on what the encoder
+  received or the Blob it produced.
+- **A probe's reader must be named `window.__sfReadTouch`.** The step phase is called the "touch
+  phase" in `tests/e2e/run.py` whatever the steps are, and its reader is looked up by that one fixed
+  name: a probe that defines `__sfReadSize` reports `READER FAILED`, contributes no criteria, and
+  reads as a clean run of the initial result only. Name it `__sfReadTouch` even for a mouse-only gate.
 - **The URL goes on Chrome's command line.** `Page.navigate` (and the Hermes CDP tool)
   refuses loopback/private page URLs, so the driver reloads whatever the browser was
   started on. Start Chrome with the target URL.
