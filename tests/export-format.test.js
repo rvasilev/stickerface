@@ -8,9 +8,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   EXPORT_LEVELS,
+  EXPORT_SIZES,
   DEFAULT_EXPORT_LEVEL,
+  DEFAULT_EXPORT_SIZE,
   EXPORT_SETTINGS_KEY,
   levelValue,
+  longEdge,
   resolveExportFormat,
   exportFilename,
   readExportSettings,
@@ -72,13 +75,24 @@ describe('levelValue — the four levels a lossy export offers', () => {
     expect(levelValue('webp', 'better')).toBe(0.92);
   });
 
-  it('never reaches 1.0 — for WebP that is a lossless cliff, for JPEG it still triples the file', () => {
+  it('never reaches 1.0 as a LEVEL — for WebP that is a lossless cliff, for JPEG it still triples the file', () => {
     for (const format of ['jpeg', 'webp']) {
       for (const [name, q] of Object.entries(EXPORT_LEVELS[format])) {
+        if (name === 'lossless') continue;
         expect(q, `${format}.${name}`).toBeGreaterThan(0);
         expect(q, `${format}.${name}`).toBeLessThanOrEqual(0.95);
       }
     }
+  });
+
+  it('offers 1.0 as ONE named tier, for WebP only, and it means lossless', () => {
+    // The tier exists because lossless WebP is 43.8% smaller than PNG at identical pixels
+    // (diag-export-compression-probe.js) — a saving that needs no dependency. JPEG has no such
+    // tier: at 1.0 it is still lossy and still triples the file.
+    expect(levelValue('webp', 'lossless')).toBe(1);
+    expect(levelValue('jpeg', 'lossless')).toBeUndefined();
+    expect(Object.keys(EXPORT_LEVELS.webp)).toContain('lossless');
+    expect(Object.keys(EXPORT_LEVELS.jpeg)).not.toContain('lossless');
   });
 
   it('is monotone from smaller to maximum, so the control means one thing', () => {
@@ -97,6 +111,36 @@ describe('levelValue — the four levels a lossy export offers', () => {
   });
 });
 
+describe('longEdge — the resolution lever, which is the one that actually decides a file size', () => {
+  it('maps a size name to a long edge, and every name to something', () => {
+    // Measured (diag-export-compression-probe.js): 12.2 MP -> 3.1 MP is 83% fewer bytes and
+    // 12.2 MP -> 1.2 MP is 95%, against 78% for the entire JPEG level range. So these two
+    // numbers are the feature, and `full` is the app's standing promise: null = do not touch it.
+    expect(EXPORT_SIZES.full).toBeNull();
+    expect(EXPORT_SIZES.large).toBe(2048);
+    expect(EXPORT_SIZES.web).toBe(1280);
+    expect(DEFAULT_EXPORT_SIZE).toBe('full');
+  });
+
+  it('is monotone from full down to web, so the control means one thing', () => {
+    // Same discipline as the level table: a size list that is not ordered reads as arbitrary.
+    // full is unbounded (null), then the edges must strictly descend.
+    expect(longEdge('large')).toBeGreaterThan(longEdge('web'));
+    expect(longEdge('web')).toBeGreaterThan(0);
+    expect(Object.keys(EXPORT_SIZES)).toEqual(['full', 'large', 'web']);
+  });
+
+  it('returns null — full resolution — for the default, for an absent name and for junk', () => {
+    // Fail-SAFE direction on purpose: an unknown stored size must never silently reduce the
+    // export, and a caller that forgets the argument gets the app's documented behaviour.
+    expect(longEdge('full')).toBeNull();
+    expect(longEdge(undefined)).toBeNull();
+    expect(longEdge('nope')).toBeNull();
+    expect(longEdge('large')).toBe(2048);
+    expect(longEdge('web')).toBe(1280);
+  });
+});
+
 describe('exportFilename', () => {
   it('keeps the established shape, with the extension it is HANDED', () => {
     expect(exportFilename('photo', 'png')).toBe('photo_stickerface.png');
@@ -106,32 +150,40 @@ describe('exportFilename', () => {
 });
 
 describe('readExportSettings / writeExportSettings — one key, fail-silent', () => {
+  const defaults = () => ({ jpeg: DEFAULT_EXPORT_LEVEL, webp: DEFAULT_EXPORT_LEVEL, size: DEFAULT_EXPORT_SIZE });
+
   it('defaults when nothing is stored', () => {
-    expect(readExportSettings(fakeStorage())).toEqual({ jpeg: DEFAULT_EXPORT_LEVEL, webp: DEFAULT_EXPORT_LEVEL });
+    expect(readExportSettings(fakeStorage())).toEqual(defaults());
   });
 
-  it('round-trips a written choice', () => {
+  it('round-trips a written choice, size included', () => {
     const s = fakeStorage();
-    writeExportSettings(s, { jpeg: 'smaller', webp: 'maximum' });
+    writeExportSettings(s, { jpeg: 'smaller', webp: 'maximum', size: 'web' });
     expect(s._map.has(EXPORT_SETTINGS_KEY)).toBe(true);
-    expect(readExportSettings(s)).toEqual({ jpeg: 'smaller', webp: 'maximum' });
+    expect(readExportSettings(s)).toEqual({ jpeg: 'smaller', webp: 'maximum', size: 'web' });
+  });
+
+  it('reads a blob written BEFORE size existed as full resolution', () => {
+    // The migration: the previous build stored two keys and no size. Absent means full — never an
+    // exception, and never a silent reduction of someone's export.
+    expect(readExportSettings(fakeStorage({ [EXPORT_SETTINGS_KEY]: '{"jpeg":"maximum","webp":"maximum"}' })))
+      .toEqual({ jpeg: 'maximum', webp: 'maximum', size: DEFAULT_EXPORT_SIZE });
   });
 
   it('ignores junk instead of throwing on it', () => {
-    expect(readExportSettings(fakeStorage({ [EXPORT_SETTINGS_KEY]: 'not json' })))
-      .toEqual({ jpeg: DEFAULT_EXPORT_LEVEL, webp: DEFAULT_EXPORT_LEVEL });
-    expect(readExportSettings(fakeStorage({ [EXPORT_SETTINGS_KEY]: '[1,2]' })))
-      .toEqual({ jpeg: DEFAULT_EXPORT_LEVEL, webp: DEFAULT_EXPORT_LEVEL });
-    // A stored level that no longer exists, and a format this build does not have.
-    expect(readExportSettings(fakeStorage({ [EXPORT_SETTINGS_KEY]: '{"jpeg":"ultra","png":"better"}' })))
-      .toEqual({ jpeg: DEFAULT_EXPORT_LEVEL, webp: DEFAULT_EXPORT_LEVEL });
+    expect(readExportSettings(fakeStorage({ [EXPORT_SETTINGS_KEY]: 'not json' }))).toEqual(defaults());
+    expect(readExportSettings(fakeStorage({ [EXPORT_SETTINGS_KEY]: '[1,2]' }))).toEqual(defaults());
+    // A stored level that no longer exists, a size that no longer exists, and a format this
+    // build does not have.
+    expect(readExportSettings(fakeStorage({ [EXPORT_SETTINGS_KEY]: '{"jpeg":"ultra","size":"huge","png":"better"}' })))
+      .toEqual(defaults());
   });
 
   it('survives storage that throws — private mode must not take the app down', () => {
     // Same fail-safe shape as the coach flag (ui.js _coachSeen): an unreadable preference is a
     // preference at its default, never an exception on the export path.
     const blocked = fakeStorage({}, { throws: true });
-    expect(readExportSettings(blocked)).toEqual({ jpeg: DEFAULT_EXPORT_LEVEL, webp: DEFAULT_EXPORT_LEVEL });
-    expect(() => writeExportSettings(blocked, { jpeg: 'smaller', webp: 'smaller' })).not.toThrow();
+    expect(readExportSettings(blocked)).toEqual(defaults());
+    expect(() => writeExportSettings(blocked, { jpeg: 'smaller', webp: 'smaller', size: 'large' })).not.toThrow();
   });
 });
